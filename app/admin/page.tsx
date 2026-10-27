@@ -3,679 +3,1035 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { 
-  Plus, Trash2, ArrowLeft, Package, 
-  Upload, CheckCircle2, ShieldCheck, ShoppingBag, User, Phone, Eye, X, Lock, LogOut, RefreshCw, Clock, Loader2, TrendingUp, Check, Ban 
+  LayoutDashboard, Package, ShoppingBag, Flame, Plus, Trash2, Search, Eye, Key, CheckCircle2, ArrowLeft, ShieldCheck, UserCheck, UserX, Users, LogIn, LogOut, RefreshCcw
 } from 'lucide-react';
 
 // Firebase Import
 import { auth, db } from '@/lib/firebase';
 import { 
   signInWithEmailAndPassword, 
-  GoogleAuthProvider,
-  signInWithPopup,
+  GoogleAuthProvider, 
+  signInWithPopup, 
   signOut, 
   onAuthStateChanged 
 } from 'firebase/auth';
-import { collection, addDoc, onSnapshot, query, orderBy, deleteDoc, doc, updateDoc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, addDoc, deleteDoc, doc, serverTimestamp, updateDoc, setDoc, getDoc } from 'firebase/firestore';
+
+const SUPER_ADMIN_EMAIL = "kajon.sk1997@gmail.com";
 
 export default function AdminPage() {
-  const [adminUser, setAdminUser] = useState<any>(null);
-  const [adminEmailInput, setAdminEmailInput] = useState('');
-  const [adminPasswordInput, setAdminPasswordInput] = useState('');
-  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
-
-  const [products, setProducts] = useState<any[]>([]);
-  const [orders, setOrders] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState<'products' | 'orders' | 'processing' | 'delivery' | 'recycle' | 'trending' | 'admins'>('products');
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [user, setUser] = useState<any>(null);
+  const [adminAuthPass, setAdminAuthPass] = useState('');
+  const [emailInput, setEmailInput] = useState('');
+  const [isPendingApproval, setIsPendingApproval] = useState(false);
+  
+  const [adminTab, setAdminTab] = useState<'products' | 'orders' | 'banners' | 'approvals' | 'trash' | 'processing' | 'verified' | 'delivered' | 'cancelled'>('products');
+  const [adminProductSearch, setAdminProductSearch] = useState('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  const [selectedOrder, setSelectedOrder] = useState<any>(null);
+  // Database Items States
+  const [products, setProducts] = useState<any[]>([]);
+  const [allOrdersList, setAllOrdersList] = useState<any[]>([]);
+  const [adminBanners, setAdminBanners] = useState<any[]>([]);
+  const [adminUsers, setAdminUsers] = useState<any[]>([]);
+  const [trashItems, setTrashItems] = useState<any[]>([]);
 
-  // Admin Access Control Lists
-  const [approvedAdmins, setApprovedAdmins] = useState<string[]>(['kajon.sk1997@gmail.com']);
-  const [pendingRequests, setPendingRequests] = useState<string[]>([]);
-  const [declinedAdmins, setDeclinedAdmins] = useState<string[]>([]);
+  // Form States - New Product
+  const [prodName, setProdName] = useState('');
+  const [prodPrice, setProdPrice] = useState('');
+  const [prodOldPrice, setProdOldPrice] = useState('');
+  const [prodCategory, setProdCategory] = useState('OTT');
+  
+  const [prodImageInputType, setProdImageInputType] = useState<'url' | 'file'>('url');
+  const [prodImage, setProdImage] = useState('');
+  const [prodVideoInputType, setProdVideoInputType] = useState<'url' | 'file'>('url');
+  const [prodVideo, setProdVideo] = useState('');
 
-  // Form States for Product Upload
-  const [name, setName] = useState('');
-  const [price, setPrice] = useState('');
-  const [originalPrice, setOriginalPrice] = useState('');
-  const [discount, setDiscount] = useState('');
-  const [category, setCategory] = useState('OTT');
-  const [badge, setBadge] = useState('');
-  const [image, setImage] = useState('');
-  const [description, setDescription] = useState('');
+  const [prodDesc, setProdDesc] = useState('');
+  const [isAddingProduct, setIsAddingProduct] = useState(false);
 
-  const showToast = (msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 4000);
-  };
+  // Form States - New Banner / 5s Video
+  const [newTitle1, setNewTitle1] = useState('');
+  const [newTitle2, setNewTitle2] = useState('');
+  const [newDesc, setNewDesc] = useState('');
+  const [newCoupon, setNewCoupon] = useState('');
+  
+  const [bannerInputType, setBannerInputType] = useState<'url' | 'file'>('url');
+  const [newMediaUrl, setNewMediaUrl] = useState('');
+  const [newMediaType, setNewMediaType] = useState('image');
+  const [newTargetCategory, setNewTargetCategory] = useState('OTT');
+  const [isAddingBanner, setIsAddingBanner] = useState(false);
 
-  // Sync Admin Approvals from Firestore safely
-  useEffect(() => {
-    try {
-      const adminDocRef = doc(db, "settings", "admins");
-      const unsubscribe = onSnapshot(adminDocRef, (docSnap) => {
-        if (docSnap.exists()) {
-          const data = docSnap.data();
-          const baseApproved = data.approved || ['kajon.sk1997@gmail.com'];
-          if (!baseApproved.includes('kajon.sk1997@gmail.com')) {
-            baseApproved.push('kajon.sk1997@gmail.com');
-          }
-          setApprovedAdmins(baseApproved);
-          setPendingRequests(data.pending || []);
-          setDeclinedAdmins(data.declined || []);
-        }
-      }, (error) => {
-        console.error("Admin sync error:", error);
-      });
-      return () => unsubscribe();
-    } catch (e) {
-      console.error(e);
-    }
-  }, []);
-
-  // Track Firebase Auth State
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        setAdminUser(user);
-      }
-      setIsCheckingAuth(false);
-    }, () => {
-      setIsCheckingAuth(false);
-    });
-    return () => unsubscribe();
-  }, []);
-
-  // Fetch Products & Orders from Firestore safely
-  useEffect(() => {
-    if (!adminUser) return;
-
-    let unsubProducts: any;
-    let unsubOrders: any;
-
-    try {
-      unsubProducts = onSnapshot(query(collection(db, "products"), orderBy("createdAt", "desc")), (snapshot) => {
-        setProducts(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
-        setIsLoading(false);
-      }, (err) => console.error("Product fetch err:", err));
-
-      unsubOrders = onSnapshot(query(collection(db, "orders"), orderBy("createdAt", "desc")), (snapshot) => {
-        setOrders(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
-      }, (err) => console.error("Order fetch err:", err));
-    } catch (e) {
-      console.error(e);
-      setIsLoading(false);
-    }
-
-    return () => {
-      if (unsubProducts) unsubProducts();
-      if (unsubOrders) unsubOrders();
-    };
-  }, [adminUser]);
-
-  // Email Login with Auto-Bypass fallback
-  const handleAdminLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      await signInWithEmailAndPassword(auth, adminEmailInput, adminPasswordInput);
-      showToast("Successfully logged in!");
-    } catch (error: any) {
-      console.warn("Firebase Auth fallback activated:", error.message);
-      setAdminUser({ email: adminEmailInput || "kajon.sk1997@gmail.com" });
-      showToast("Logged in to Admin Panel!");
-    }
-  };
-
-  // Google Login with Auto-Bypass fallback
-  const handleGoogleLogin = async () => {
-    const provider = new GoogleAuthProvider();
-    try {
-      await signInWithPopup(auth, provider);
-      showToast("Successfully logged in with Google!");
-    } catch (error: any) {
-      console.warn("Google Auth fallback activated:", error.message);
-      setAdminUser({ email: "kajon.sk1997@gmail.com" });
-      showToast("Logged in with Google!");
-    }
-  };
-
-  // Logout
-  const handleAdminLogout = async () => {
-    try {
-      await signOut(auth);
-    } catch (e) {}
-    setAdminUser(null);
-    showToast("Logged out successfully!");
-  };
-
-  // Action: Approve Admin Access Request
-  const handleApproveAdmin = async (emailToApprove: string) => {
-    const updatedApproved = [...approvedAdmins, emailToApprove];
-    const updatedPending = pendingRequests.filter(e => e !== emailToApprove);
-    const updatedDeclined = declinedAdmins.filter(e => e !== emailToApprove);
-
-    try {
-      await setDoc(doc(db, "settings", "admins"), {
-        approved: updatedApproved,
-        pending: updatedPending,
-        declined: updatedDeclined
-      });
-      showToast(`Admin access approved for ${emailToApprove}`);
-    } catch (error: any) {
-      showToast("Failed to approve: " + error.message);
-    }
-  };
-
-  // Action: Decline Admin Access Request
-  const handleDeclineAdmin = async (emailToDecline: string) => {
-    const updatedApproved = approvedAdmins.filter(e => e !== emailToDecline);
-    const updatedPending = pendingRequests.filter(e => e !== emailToDecline);
-    const updatedDeclined = [...declinedAdmins, emailToDecline];
-
-    try {
-      await setDoc(doc(db, "settings", "admins"), {
-        approved: updatedApproved,
-        pending: updatedPending,
-        declined: updatedDeclined
-      });
-      showToast(`Admin access declined for ${emailToDecline}`);
-    } catch (error: any) {
-      showToast("Failed to decline: " + error.message);
-    }
-  };
-
-  // Product Upload
-  const handleAddProduct = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name || !price || !image) {
-      showToast("Please fill in required fields!");
-      return;
-    }
-
-    setIsSubmitting(true);
-    try {
-      await addDoc(collection(db, "products"), {
-        name,
-        price: Number(price),
-        originalPrice: originalPrice ? Number(originalPrice) : null,
-        discount: discount || null,
-        category,
-        badge: badge || null,
-        image,
-        description: description || "High quality premium product from One Shop.",
-        createdAt: serverTimestamp()
-      });
-
-      showToast("Product successfully uploaded!");
-      setName(''); setPrice(''); setOriginalPrice(''); setDiscount(''); setBadge(''); setImage(''); setDescription('');
-    } catch (error: any) {
-      showToast("Upload failed: " + error.message);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  // Product Delete
-  const handleDeleteProduct = async (id: string) => {
-    if (confirm("Remove this product?")) {
-      try {
-        await deleteDoc(doc(db, "products", id));
-        showToast("Product removed!");
-      } catch (error: any) {
-        showToast("Delete failed");
-      }
-    }
-  };
-
-  // Order Status Update
-  const handleUpdateOrderStatus = async (orderId: string, newStatus: string) => {
-    try {
-      const updateData: any = { status: newStatus };
-      if (newStatus === 'Cancelled') {
-        const expireDate = new Date();
-        expireDate.setDate(expireDate.getDate() + 2);
-        updateData.recycleExpiresAt = expireDate.toISOString();
-      }
-      if (newStatus === 'Delivered') {
-        updateData.deliveryTime = "Delivered within 24-48 Hours";
-      }
-
-      await updateDoc(doc(db, "orders", orderId), updateData);
-      showToast(`Order updated to ${newStatus}`);
-      setSelectedOrder(null);
-    } catch (error: any) {
-      showToast("Failed to update status");
-    }
-  };
-
-  const handlePermanentDeleteOrder = async (orderId: string) => {
-    if (confirm("Delete permanently?")) {
-      await deleteDoc(doc(db, "orders", orderId));
-      showToast("Deleted forever");
-    }
-  };
-
-  const handleRestoreOrder = async (orderId: string) => {
-    await updateDoc(doc(db, "orders", orderId), { status: 'Pending', recycleExpiresAt: null });
-    showToast("Order restored");
-  };
-
-  // Filtered Lists
-  const activeOrders = orders.filter(o => !o.status || o.status === 'Pending' || o.status === 'New');
-  const processingOrders = orders.filter(o => o.status === 'Processing');
-  const deliveredOrders = orders.filter(o => o.status === 'Delivered');
-  const recycleBinOrders = orders.filter(o => o.status === 'Cancelled');
-
-  // Best Selling / Trending calculation
-  const getTrendingProducts = () => {
-    const counts: { [key: string]: any } = {};
-    orders.forEach(order => {
-      if (order.status !== 'Cancelled' && order.items) {
-        order.items.forEach((item: any) => {
-          if (!counts[item.name]) {
-            counts[item.name] = { count: 0, ...item };
-          }
-          counts[item.name].count += (item.quantity || 1);
-        });
-      }
-    });
-    return Object.values(counts).sort((a: any, b: any) => b.count - a.count);
-  };
-  const trendingProducts = getTrendingProducts();
+  // Selected Invoice State for Viewing
+  const [selectedInvoice, setSelectedInvoice] = useState<any>(null);
 
   const categoriesList = [
     "OTT", "Electronics", "Fashion", "Footwear", "Home & Living", 
     "Beauty & Personal Care", "Sports & Fitness", "Accessories", "Toys & Kids", "Health & Wellness", "Books & Stationery"
   ];
 
-  if (isCheckingAuth) {
-    return (
-      <div className="min-h-screen bg-[#050507] text-white flex items-center justify-center">
-        <p className="animate-pulse text-amber-400">Loading Admin Panel...</p>
-      </div>
-    );
-  }
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3000);
+  };
 
-  // Login View
-  if (!adminUser) {
-    return (
-      <div className="min-h-screen bg-[#050507] text-white font-sans flex items-center justify-center p-4">
-        <div className="w-full max-w-md bg-zinc-900/90 border border-amber-500/30 p-8 rounded-2xl shadow-2xl space-y-6">
-          <div className="text-center space-y-2">
-            <div className="w-14 h-14 bg-amber-500/10 border border-amber-500/30 rounded-2xl flex items-center justify-center mx-auto text-amber-400">
-              <Lock size={28} />
-            </div>
-            <h1 className="text-2xl font-extrabold text-amber-400">Admin Control Panel</h1>
-            <p className="text-xs text-zinc-400">Sign in with your admin credentials or Google</p>
-          </div>
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, setter: (val: string) => void) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setter(reader.result as string);
+        showToast("File uploaded successfully!");
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
-          <form onSubmit={handleAdminLogin} className="space-y-4 text-xs">
-            <div>
-              <label className="font-bold text-zinc-300 block mb-1">Admin Email</label>
-              <input 
-                type="email" 
-                value={adminEmailInput} 
-                onChange={(e) => setAdminEmailInput(e.target.value)} 
-                required 
-                placeholder="kajon.sk1997@gmail.com" 
-                className="w-full bg-black border border-zinc-700 focus:border-amber-500 text-white p-3 rounded-xl outline-none"
-              />
-            </div>
-            <div>
-              <label className="font-bold text-zinc-300 block mb-1">Password</label>
-              <input 
-                type="password" 
-                value={adminPasswordInput} 
-                onChange={(e) => setAdminPasswordInput(e.target.value)} 
-                required 
-                placeholder="••••••••" 
-                className="w-full bg-black border border-zinc-700 focus:border-amber-500 text-white p-3 rounded-xl outline-none"
-              />
-            </div>
-            <button 
-              type="submit" 
-              className="w-full bg-amber-400 hover:bg-amber-500 text-black font-extrabold py-3 rounded-xl transition cursor-pointer text-sm shadow-lg shadow-amber-500/20"
-            >
-              Sign In with Email
-            </button>
-          </form>
+  // Auth & Admin Approval Check Effect
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      if (currentUser) {
+        setUser(currentUser);
+        const userEmail = currentUser.email?.toLowerCase();
+        
+        if (userEmail === SUPER_ADMIN_EMAIL.toLowerCase()) {
+          setIsPendingApproval(false);
+          await setDoc(doc(db, "admin_users", currentUser.uid), {
+            email: currentUser.email,
+            status: 'Approved',
+            role: 'Super Admin',
+            updatedAt: serverTimestamp()
+          }, { merge: true });
+        } else {
+          const userDocRef = doc(db, "admin_users", currentUser.uid);
+          const userDocSnap = await getDoc(userDocRef);
 
-          <div className="flex items-center my-4">
-            <div className="flex-grow border-t border-zinc-800"></div>
-            <span className="px-3 text-zinc-500 text-[10px] uppercase font-bold">Or</span>
-            <div className="flex-grow border-t border-zinc-800"></div>
-          </div>
+          if (userDocSnap.exists() && userDocSnap.data().status === 'Approved') {
+            setIsPendingApproval(false);
+          } else {
+            setIsPendingApproval(true);
+            await setDoc(userDocRef, {
+              email: currentUser.email,
+              status: userDocSnap.exists() ? userDocSnap.data().status : 'Pending',
+              role: 'Editor Admin',
+              createdAt: serverTimestamp()
+            }, { merge: true });
+          }
+        }
+      } else {
+        setUser(null);
+        setIsPendingApproval(false);
+      }
+    });
 
-          <button 
-            onClick={handleGoogleLogin} 
-            className="w-full bg-zinc-800 hover:bg-zinc-700 text-white font-bold py-3 rounded-xl transition cursor-pointer text-xs flex items-center justify-center gap-2 border border-zinc-700"
-          >
-            <svg className="w-4 h-4" viewBox="0 0 24 24">
-              <path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.6l3.1-3.1C17.3 1.8 14.8 1 12 1 7.5 1 3.7 3.6 1.8 7.3l3.7 2.9C6.4 7.2 9 5 12 5z"/>
-              <path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.5h6.5c-.3 1.5-1.1 2.8-2.4 3.7l3.7 2.9c2.2-2 3.7-5 3.7-8.8z"/>
-              <path fill="#FBBC05" d="M5.5 14.8c-.2-.7-.4-1.5-.4-2.3s.2-1.6.4-2.3L1.8 7.3C.7 9.5 0 12 0 12s.7 2.5 1.8 4.7l3.7-2.9z"/>
-              <path fill="#34A853" d="M12 23c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3 0-5.6-2.2-6.5-5.2L1.8 16c1.9 3.7 5.7 6.3 10.2 6.3z"/>
-            </svg>
-            Sign In with Google
-          </button>
+    return () => unsubscribe();
+  }, []);
 
-          <div className="pt-4 border-t border-zinc-800 text-center">
-            <Link href="/" className="text-xs text-amber-400 hover:underline">← Back to One Shop Home</Link>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  // Fetch Live Database Items
+  useEffect(() => {
+    const qProd = query(collection(db, "products"), orderBy("createdAt", "desc"));
+    const unsubProd = onSnapshot(qProd, (snapshot) => {
+      setProducts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
 
-  // Main Dashboard View
+    const qOrd = query(collection(db, "orders"), orderBy("createdAt", "desc"));
+    const unsubOrd = onSnapshot(qOrd, (snapshot) => {
+      setAllOrdersList(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    const qBan = query(collection(db, "banners"), orderBy("createdAt", "desc"));
+    const unsubBan = onSnapshot(qBan, (snapshot) => {
+      setAdminBanners(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    const qUsers = query(collection(db, "admin_users"));
+    const unsubUsers = onSnapshot(qUsers, (snapshot) => {
+      setAdminUsers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    const qTrash = query(collection(db, "trash_bin"), orderBy("deletedAt", "desc"));
+    const unsubTrash = onSnapshot(qTrash, (snapshot) => {
+      setTrashItems(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    return () => {
+      unsubProd();
+      unsubOrd();
+      unsubBan();
+      unsubUsers();
+      unsubTrash();
+    };
+  }, []);
+
+  // Strict Email/Password Login (No Automatic Account Creation)
+  const handleEmailPasswordLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await signInWithEmailAndPassword(auth, emailInput, adminAuthPass);
+      showToast("Signed in successfully!");
+    } catch (error: any) {
+      if (error.code === 'auth/invalid-credential') {
+        showToast("Incorrect Email or Password! Please check your credentials.");
+      } else {
+        showToast("Login Failed: " + error.message);
+      }
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    const provider = new GoogleAuthProvider();
+    try {
+      await signInWithPopup(auth, provider);
+      showToast("Google Authentication Success!");
+    } catch (error: any) {
+      showToast("Google Sign-In Error: " + error.message);
+    }
+  };
+
+  const handleApproveAdminUser = async (uid: string, newStatus: string) => {
+    try {
+      await updateDoc(doc(db, "admin_users", uid), {
+        status: newStatus,
+        updatedAt: serverTimestamp()
+      });
+      showToast(`User status updated to: ${newStatus}`);
+    } catch (error: any) {
+      showToast("Approval error: " + error.message);
+    }
+  };
+
+  const handleAddProductSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!prodName || !prodPrice || !prodImage) {
+      showToast("Name, Price and Image are required!");
+      return;
+    }
+
+    setIsAddingProduct(true);
+    try {
+      await addDoc(collection(db, "products"), {
+        name: prodName,
+        price: Number(prodPrice),
+        originalPrice: prodOldPrice ? Number(prodOldPrice) : null,
+        category: prodCategory,
+        image: prodImage,
+        video: prodVideo || null,
+        description: prodDesc || "High quality product.",
+        createdAt: serverTimestamp()
+      });
+      showToast("Product published live!");
+      setProdName('');
+      setProdPrice('');
+      setProdOldPrice('');
+      setProdImage('');
+      setProdVideo('');
+      setProdDesc('');
+    } catch (error: any) {
+      showToast("Error adding product: " + error.message);
+    } finally {
+      setIsAddingProduct(false);
+    }
+  };
+
+  const handleMoveToTrash = async (item: any, type: string) => {
+    if (!confirm(`Are you sure you want to move this ${type} to Trash Bin?`)) return;
+    try {
+      await addDoc(collection(db, "trash_bin"), {
+        originalId: item.id,
+        itemType: type,
+        data: item,
+        deletedAt: serverTimestamp()
+      });
+
+      if (type === 'product') {
+        await deleteDoc(doc(db, "products", item.id));
+      } else if (type === 'order') {
+        await deleteDoc(doc(db, "orders", item.id));
+      }
+
+      showToast(`Moved to Trash Bin!`);
+    } catch (error: any) {
+      showToast("Error moving to trash: " + error.message);
+    }
+  };
+
+  const handleRestoreFromTrash = async (trashDocId: string, itemData: any, itemType: string) => {
+    try {
+      if (itemType === 'product') {
+        await addDoc(collection(db, "products"), {
+          name: itemData.name,
+          price: itemData.price,
+          originalPrice: itemData.originalPrice || null,
+          category: itemData.category,
+          image: itemData.image,
+          video: itemData.video || null,
+          description: itemData.description || "",
+          createdAt: serverTimestamp()
+        });
+      } else if (itemType === 'order') {
+        await addDoc(collection(db, "orders"), {
+          customerName: itemData.customerName,
+          customerEmail: itemData.customerEmail,
+          phone: itemData.phone,
+          address: itemData.address,
+          paymentMethod: itemData.paymentMethod,
+          trxId: itemData.trxId,
+          items: itemData.items,
+          totalPrice: itemData.totalPrice,
+          status: itemData.status,
+          createdAt: serverTimestamp()
+        });
+      }
+
+      await deleteDoc(doc(db, "trash_bin", trashDocId));
+      showToast("Item restored successfully!");
+    } catch (error: any) {
+      showToast("Restore failed: " + error.message);
+    }
+  };
+
+  const handlePermanentDelete = async (trashDocId: string) => {
+    if (!confirm("Permanently delete this item from Bin?")) return;
+    try {
+      await deleteDoc(doc(db, "trash_bin", trashDocId));
+      showToast("Permanently deleted!");
+    } catch (error: any) {
+      showToast("Error: " + error.message);
+    }
+  };
+
+  const handleUpdateOrderStatus = async (orderId: string, newStatus: string) => {
+    try {
+      await updateDoc(doc(db, "orders", orderId), { status: newStatus });
+      showToast(`Order status updated to: ${newStatus}`);
+    } catch (error: any) {
+      showToast("Update failed: " + error.message);
+    }
+  };
+
+  const handleAddBannerSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newMediaUrl) {
+      showToast("Please provide Media!");
+      return;
+    }
+
+    setIsAddingBanner(true);
+    try {
+      await addDoc(collection(db, "banners"), {
+        titleLine1: newTitle1 || "Special Offer",
+        titleLine2: newTitle2 || "Discount",
+        description: newDesc || "Explore exclusive deals today.",
+        couponText: newCoupon || "Use code ONE10 for 10% off",
+        mediaUrl: newMediaUrl,
+        mediaType: newMediaType,
+        targetCategory: newTargetCategory,
+        createdAt: serverTimestamp()
+      });
+      showToast("Banner/Video added successfully!");
+      setNewTitle1('');
+      setNewTitle2('');
+      setNewDesc('');
+      setNewCoupon('');
+      setNewMediaUrl('');
+    } catch (error: any) {
+      showToast("Error adding banner: " + error.message);
+    } finally {
+      setIsAddingBanner(false);
+    }
+  };
+
+  const handleDeleteBanner = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, "banners", id));
+      showToast("Banner removed!");
+    } catch (error: any) {
+      showToast("Error deleting banner: " + error.message);
+    }
+  };
+
+  const filteredProducts = adminProductSearch.trim() === "" 
+    ? products 
+    : products.filter(p => p.name?.toLowerCase().includes(adminProductSearch.toLowerCase()) || p.category?.toLowerCase().includes(adminProductSearch.toLowerCase()));
+
+  const processingOrders = allOrdersList.filter(o => (o.status || 'Pending') === 'Processing');
+  const verifiedOrders = allOrdersList.filter(o => o.status === 'Verified');
+  const deliveredOrders = allOrdersList.filter(o => o.status === 'Delivered');
+  const cancelledOrders = allOrdersList.filter(o => o.status === 'Cancelled');
+
   return (
-    <div className="min-h-screen bg-[#050507] text-white font-sans p-6 relative">
+    <div className="min-h-screen bg-[#050507] text-white font-sans p-4 sm:p-8">
       
       {toastMessage && (
-        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[100] pointer-events-none">
-          <div className="bg-zinc-900 border border-amber-500/50 text-white px-6 py-3 rounded-xl shadow-2xl flex items-center gap-3">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center pointer-events-none">
+          <div className="bg-zinc-900 border border-amber-500/50 text-white px-6 py-3 rounded-xl shadow-2xl flex items-center gap-3 animate-bounce">
             <CheckCircle2 className="text-amber-400" size={22} />
             <span className="text-sm font-bold">{toastMessage}</span>
           </div>
         </div>
       )}
 
-      {/* Order Details Modal */}
-      {selectedOrder && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3">
-          <div className="w-full max-w-lg bg-zinc-950 border border-amber-500/40 rounded-2xl relative shadow-2xl p-5 max-h-[90vh] flex flex-col">
-            <button onClick={() => setSelectedOrder(null)} className="absolute top-3 right-3 bg-zinc-900 p-1.5 rounded-full text-zinc-400 hover:text-white cursor-pointer">
-              <X size={18} />
+      {/* Header */}
+      <div className="max-w-6xl mx-auto flex items-center justify-between border-b border-zinc-800 pb-4 mb-6">
+        <div className="flex items-center gap-3">
+          <LayoutDashboard className="text-amber-400" size={28} />
+          <div>
+            <h1 className="text-xl sm:text-2xl font-extrabold text-white">One Shop Admin Portal</h1>
+            <p className="text-xs text-zinc-400">Independent Admin Panel & Control Hub</p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          {user && (
+            <button 
+              onClick={() => signOut(auth)}
+              className="bg-red-500/20 hover:bg-red-500 text-red-400 hover:text-white px-3 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+            >
+              <LogOut size={14} /> Logout ({user.email?.split('@')[0]})
+            </button>
+          )}
+          <Link href="/" className="bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-xs text-amber-400 px-3 py-2 rounded-xl flex items-center gap-1 font-bold transition">
+            <ArrowLeft size={14} /> Back to Website
+          </Link>
+        </div>
+      </div>
+
+      {!user ? (
+        /* LOGIN FORM */
+        <div className="max-w-md mx-auto my-12 bg-zinc-950 border border-amber-500/40 p-8 rounded-2xl shadow-2xl text-center space-y-5">
+          <div className="w-16 h-16 bg-amber-500/10 border border-amber-500/30 rounded-full flex items-center justify-center mx-auto text-amber-400">
+            <Key size={30} />
+          </div>
+          <div>
+            <h2 className="text-xl font-bold text-white">Admin Authentication</h2>
+            <p className="text-xs text-zinc-400 mt-1">Sign in using Super Admin credentials or Google</p>
+          </div>
+
+          <form onSubmit={handleEmailPasswordLogin} className="space-y-3 text-left">
+            <div>
+              <label className="text-xs font-bold text-zinc-300 block mb-1">Admin Email</label>
+              <input 
+                type="email" 
+                value={emailInput} 
+                onChange={(e) => setEmailInput(e.target.value)} 
+                placeholder="kajon.sk1997@gmail.com" 
+                required
+                className="w-full bg-black border border-zinc-700 text-white p-2.5 rounded-xl outline-none text-xs"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-bold text-zinc-300 block mb-1">Admin Password</label>
+              <input 
+                type="password" 
+                value={adminAuthPass} 
+                onChange={(e) => setAdminAuthPass(e.target.value)} 
+                placeholder="••••••••••••" 
+                required
+                className="w-full bg-black border border-zinc-700 text-white p-2.5 rounded-xl outline-none text-xs"
+              />
+            </div>
+            <button type="submit" className="w-full bg-amber-500 hover:bg-amber-600 text-black font-extrabold py-3 rounded-xl transition cursor-pointer text-sm shadow-lg shadow-amber-500/20">
+              Sign In to Admin Panel
+            </button>
+          </form>
+
+          <div className="flex items-center my-3">
+            <div className="flex-grow border-t border-zinc-800"></div>
+            <span className="px-3 text-zinc-500 text-xs">or</span>
+            <div className="flex-grow border-t border-zinc-800"></div>
+          </div>
+
+          <button 
+            type="button" 
+            onClick={handleGoogleLogin} 
+            className="w-full bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-white font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-2 cursor-pointer transition"
+          >
+            <LogIn size={16} className="text-amber-400" /> Sign In with Google
+          </button>
+        </div>
+      ) : isPendingApproval ? (
+        /* PENDING APPROVAL */
+        <div className="max-w-md mx-auto my-16 bg-zinc-950 border border-amber-500/40 p-8 rounded-2xl shadow-2xl text-center space-y-4">
+          <div className="w-16 h-16 bg-amber-500/10 border border-amber-500/30 rounded-full flex items-center justify-center mx-auto text-amber-400 animate-pulse">
+            <ShieldCheck size={32} />
+          </div>
+          <h2 className="text-xl font-bold text-white">Access Approval Pending</h2>
+          <p className="text-xs text-zinc-400 leading-relaxed">
+            Logged in as: <span className="text-amber-400 font-bold">{user.email}</span>.<br />
+            Your admin request has been sent to Super Admin (<span className="text-white font-semibold">kajon.sk1997@gmail.com</span>). Once approved, you can access the dashboard.
+          </p>
+          <button onClick={() => window.location.reload()} className="bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-xs text-amber-400 px-4 py-2 rounded-xl font-bold cursor-pointer">
+            Check Approval Status
+          </button>
+        </div>
+      ) : (
+        /* DASHBOARD */
+        <div className="max-w-6xl mx-auto space-y-6">
+          
+          <div className="flex items-center gap-2 border-b border-zinc-800 pb-3 overflow-x-auto scrollbar-none">
+            <button 
+              onClick={() => setAdminTab('products')} 
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition shrink-0 ${adminTab === 'products' ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20' : 'bg-zinc-900 text-zinc-300 hover:bg-zinc-800'}`}
+            >
+              <Package size={14} /> Products ({products.length})
+            </button>
+            <button 
+              onClick={() => setAdminTab('orders')} 
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition shrink-0 ${adminTab === 'orders' ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20' : 'bg-zinc-900 text-zinc-300 hover:bg-zinc-800'}`}
+            >
+              <ShoppingBag size={14} /> All Orders ({allOrdersList.length})
+            </button>
+            
+            <button 
+              onClick={() => setAdminTab('processing')} 
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition shrink-0 ${adminTab === 'processing' ? 'bg-amber-500 text-black' : 'bg-zinc-900 text-amber-400 border border-amber-500/30 hover:bg-zinc-800'}`}
+            >
+              Processing ({processingOrders.length})
+            </button>
+            <button 
+              onClick={() => setAdminTab('verified')} 
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition shrink-0 ${adminTab === 'verified' ? 'bg-blue-500 text-white' : 'bg-zinc-900 text-blue-400 border border-blue-500/30 hover:bg-zinc-800'}`}
+            >
+              Received/Verified ({verifiedOrders.length})
+            </button>
+            <button 
+              onClick={() => setAdminTab('delivered')} 
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition shrink-0 ${adminTab === 'delivered' ? 'bg-emerald-500 text-black' : 'bg-zinc-900 text-emerald-400 border border-emerald-500/30 hover:bg-zinc-800'}`}
+            >
+              Delivered ({deliveredOrders.length})
+            </button>
+            <button 
+              onClick={() => setAdminTab('cancelled')} 
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition shrink-0 ${adminTab === 'cancelled' ? 'bg-red-500 text-white' : 'bg-zinc-900 text-red-400 border border-red-500/30 hover:bg-zinc-800'}`}
+            >
+              Cancel Orders ({cancelledOrders.length})
             </button>
 
-            <div className="border-b border-zinc-800 pb-3 pr-8 space-y-1">
-              <span className="text-[10px] bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full font-bold">ID: {selectedOrder.id}</span>
-              <h2 className="text-base font-extrabold text-white">Order Details & Management</h2>
-            </div>
+            <button 
+              onClick={() => setAdminTab('banners')} 
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition shrink-0 ${adminTab === 'banners' ? 'bg-amber-500 text-black' : 'bg-zinc-900 text-zinc-300 hover:bg-zinc-800'}`}
+            >
+              <Flame size={14} /> Banners ({adminBanners.length})
+            </button>
 
-            <div className="flex-1 overflow-y-auto space-y-3 py-3 text-xs">
-              <div className="grid grid-cols-2 gap-2 bg-zinc-900/60 p-3 rounded-xl border border-zinc-800">
-                <div><p className="text-zinc-400 text-[10px]">Customer:</p><p className="font-bold text-white">{selectedOrder.customerName || "N/A"}</p></div>
-                <div><p className="text-zinc-400 text-[10px]">Phone:</p><p className="font-bold text-amber-400">{selectedOrder.phone || "N/A"}</p></div>
-                <div className="col-span-2"><p className="text-zinc-400 text-[10px]">Address:</p><p className="font-bold text-white">{selectedOrder.address || "N/A"}</p></div>
-                <div><p className="text-zinc-400 text-[10px]">Payment:</p><p className="font-bold text-emerald-400">{selectedOrder.paymentMethod || "COD"}</p></div>
-                <div><p className="text-zinc-400 text-[10px]">Status:</p><span className="font-bold text-amber-400">{selectedOrder.status || "Pending"}</span></div>
-              </div>
+            <button 
+              onClick={() => setAdminTab('trash')} 
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition shrink-0 ${adminTab === 'trash' ? 'bg-red-600 text-white shadow-lg shadow-red-600/20' : 'bg-zinc-900 text-red-400 border border-red-500/30 hover:bg-zinc-800'}`}
+            >
+              <Trash2 size={14} /> Bin / Trash ({trashItems.length})
+            </button>
 
-              {/* Live Status Tracking */}
-              <div className="bg-black p-3 rounded-xl border border-zinc-800 space-y-1">
-                <p className="text-[10px] font-bold text-zinc-300">Live Customer Tracking Status:</p>
-                <div className="flex justify-between items-center text-[9px] text-zinc-400 pt-1">
-                  <div className="text-center">
-                    <div className="w-5 h-5 bg-emerald-500 text-black font-bold rounded-full flex items-center justify-center mx-auto mb-0.5">✓</div>
-                    <span>Placed</span>
+            {user?.email?.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase() && (
+              <button 
+                onClick={() => setAdminTab('approvals')} 
+                className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition shrink-0 ${adminTab === 'approvals' ? 'bg-emerald-500 text-black' : 'bg-zinc-900 text-emerald-400 border border-emerald-500/30 hover:bg-zinc-800'}`}
+              >
+                <Users size={14} /> Approvals ({adminUsers.filter(u => u.status === 'Pending').length})
+              </button>
+            )}
+          </div>
+
+          {/* TAB 1: PRODUCT MANAGEMENT */}
+          {adminTab === 'products' && (
+            <div className="space-y-6 text-xs">
+              <form onSubmit={handleAddProductSubmit} className="bg-zinc-950 p-5 rounded-2xl border border-zinc-800 space-y-4">
+                <p className="font-bold text-amber-400 text-sm flex items-center gap-1"><Plus size={16} /> Add New Product:</p>
+                
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="text-zinc-300 font-bold block mb-1">Product Title *</label>
+                    <input type="text" value={prodName} onChange={(e) => setProdName(e.target.value)} required placeholder="e.g. Netflix Premium 1 Month" className="w-full bg-black border border-zinc-700 text-white p-2.5 rounded-xl outline-none" />
                   </div>
-                  <div className={`flex-1 h-0.5 mx-2 ${selectedOrder.status && selectedOrder.status !== 'Pending' ? 'bg-emerald-500' : 'bg-zinc-700'}`}></div>
-                  <div className="text-center">
-                    <div className={`w-5 h-5 rounded-full flex items-center justify-center mx-auto mb-0.5 font-bold ${selectedOrder.status === 'Processing' || selectedOrder.status === 'Delivered' ? 'bg-emerald-500 text-black' : 'bg-zinc-800 text-zinc-500'}`}>2</div>
-                    <span>Processing</span>
+                  <div>
+                    <label className="text-zinc-300 font-bold block mb-1">Price (৳) *</label>
+                    <input type="number" value={prodPrice} onChange={(e) => setProdPrice(e.target.value)} required placeholder="350" className="w-full bg-black border border-zinc-700 text-white p-2.5 rounded-xl outline-none" />
                   </div>
-                  <div className={`flex-1 h-0.5 mx-2 ${selectedOrder.status === 'Delivered' ? 'bg-emerald-500' : 'bg-zinc-700'}`}></div>
-                  <div className="text-center">
-                    <div className={`w-5 h-5 rounded-full flex items-center justify-center mx-auto mb-0.5 font-bold ${selectedOrder.status === 'Delivered' ? 'bg-emerald-500 text-black' : 'bg-zinc-800 text-zinc-500'}`}>3</div>
-                    <span>Delivered</span>
+                  <div>
+                    <label className="text-zinc-300 font-bold block mb-1">Old Price (৳)</label>
+                    <input type="number" value={prodOldPrice} onChange={(e) => setProdOldPrice(e.target.value)} placeholder="450" className="w-full bg-black border border-zinc-700 text-white p-2.5 rounded-xl outline-none" />
                   </div>
                 </div>
-              </div>
 
-              <div className="space-y-1.5">
-                <p className="text-[10px] font-bold text-zinc-300">Purchased Items:</p>
-                {selectedOrder.items?.map((item: any, i: number) => (
-                  <div key={i} className="flex items-center justify-between bg-black p-2.5 rounded-xl border border-zinc-800">
-                    <div className="flex items-center gap-2.5">
-                      <img src={item.image} alt={item.name} className="w-9 h-9 object-cover rounded-lg" />
-                      <div>
-                        <p className="text-[11px] font-bold text-white line-clamp-1">{item.name}</p>
-                        <p className="text-[9px] text-amber-400">৳{item.price} x {item.quantity}</p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="text-zinc-300 font-bold block mb-1">Category *</label>
+                    <select value={prodCategory} onChange={(e) => setProdCategory(e.target.value)} className="w-full bg-black border border-zinc-700 text-white p-2.5 rounded-xl outline-none">
+                      {categoriesList.map((cat, i) => (
+                        <option key={i} value={cat}>{cat}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between items-center mb-1">
+                      <label className="text-zinc-300 font-bold">Product Image *</label>
+                      <span className="text-[10px] text-amber-400 cursor-pointer underline" onClick={() => setProdImageInputType(prodImageInputType === 'url' ? 'file' : 'url')}>
+                        Switch to {prodImageInputType === 'url' ? 'File Upload' : 'URL Link'}
+                      </span>
+                    </div>
+                    {prodImageInputType === 'url' ? (
+                      <input type="text" value={prodImage} onChange={(e) => setProdImage(e.target.value)} required placeholder="https://image-url.jpg" className="w-full bg-black border border-zinc-700 text-white p-2.5 rounded-xl outline-none" />
+                    ) : (
+                      <input type="file" accept="image/*" onChange={(e) => handleFileUpload(e, setProdImage)} className="w-full bg-black border border-zinc-700 text-white p-2 rounded-xl text-[10px]" />
+                    )}
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between items-center mb-1">
+                      <label className="text-zinc-300 font-bold">Product Video (Optional)</label>
+                      <span className="text-[10px] text-amber-400 cursor-pointer underline" onClick={() => setProdVideoInputType(prodVideoInputType === 'url' ? 'file' : 'url')}>
+                        Switch to {prodVideoInputType === 'url' ? 'File Upload' : 'URL Link'}
+                      </span>
+                    </div>
+                    {prodVideoInputType === 'url' ? (
+                      <input type="text" value={prodVideo} onChange={(e) => setProdVideo(e.target.value)} placeholder="https://video-url.mp4" className="w-full bg-black border border-zinc-700 text-white p-2.5 rounded-xl outline-none" />
+                    ) : (
+                      <input type="file" accept="video/*" onChange={(e) => handleFileUpload(e, setProdVideo)} className="w-full bg-black border border-zinc-700 text-white p-2 rounded-xl text-[10px]" />
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-zinc-300 font-bold block mb-1">Product Description</label>
+                  <input type="text" value={prodDesc} onChange={(e) => setProdDesc(e.target.value)} placeholder="Describe product details..." className="w-full bg-black border border-zinc-700 text-white p-2.5 rounded-xl outline-none" />
+                </div>
+
+                <button type="submit" disabled={isAddingProduct} className="w-full bg-amber-500 hover:bg-amber-600 text-black font-extrabold py-3 rounded-xl transition cursor-pointer text-sm">
+                  {isAddingProduct ? "Publishing Product..." : "Publish Product Live"}
+                </button>
+              </form>
+
+              <div className="space-y-4">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-zinc-950 p-4 rounded-xl border border-zinc-800">
+                  <span className="font-bold text-white text-sm">All Stored Products ({filteredProducts.length}):</span>
+                  
+                  <div className="relative w-full sm:w-72">
+                    <input 
+                      type="text" 
+                      value={adminProductSearch} 
+                      onChange={(e) => setAdminProductSearch(e.target.value)} 
+                      placeholder="Search product by name or category..." 
+                      className="w-full bg-black border border-amber-500/40 text-white py-2 pl-3 pr-8 rounded-xl outline-none text-xs"
+                    />
+                    <Search size={14} className="absolute right-3 top-3 text-zinc-400" />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                  {filteredProducts.map((p) => (
+                    <div key={p.id} className="bg-black border border-zinc-800 p-3 rounded-2xl flex items-center justify-between gap-3 shadow-lg">
+                      <div className="flex items-center gap-3">
+                        <img src={p.image} alt={p.name} className="w-14 h-14 object-cover rounded-xl border border-zinc-700" />
+                        <div>
+                          <p className="font-bold text-white line-clamp-1">{p.name}</p>
+                          <p className="text-[11px] text-amber-400 font-bold">৳{p.price} | {p.category}</p>
+                        </div>
+                      </div>
+                      <button 
+                        onClick={() => handleMoveToTrash(p, 'product')} 
+                        className="bg-red-500/20 hover:bg-red-500 text-red-400 hover:text-white p-2.5 rounded-xl transition cursor-pointer"
+                        title="Move to Trash Bin"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 2: ALL ORDERS */}
+          {adminTab === 'orders' && (
+            <div className="space-y-4 text-xs">
+              <p className="font-bold text-zinc-300 text-sm">All Customer Orders & Status Action Buttons:</p>
+              {allOrdersList.length === 0 ? (
+                <p className="text-zinc-500 text-center py-12">No orders placed yet.</p>
+              ) : (
+                allOrdersList.map((ord) => {
+                  const currentStatus = ord.status || 'Pending';
+                  return (
+                    <div key={ord.id} className="bg-zinc-950 border border-amber-500/30 rounded-2xl p-4 space-y-3 shadow-xl">
+                      <div className="flex flex-wrap justify-between items-center border-b border-zinc-800 pb-2 gap-2">
+                        <div>
+                          <span className="font-extrabold text-white text-sm">Customer: {ord.customerName} ({ord.phone})</span>
+                          <p className="text-[10px] text-zinc-400">Payment: {ord.paymentMethod} | TrxID: <span className="text-amber-400 font-mono font-bold">{ord.trxId}</span></p>
+                        </div>
+                        
+                        <div className="flex items-center gap-2">
+                          <button 
+                            onClick={() => setSelectedInvoice(ord)}
+                            className="bg-amber-500/20 hover:bg-amber-500 text-amber-400 hover:text-black border border-amber-500/40 px-3 py-1.5 rounded-xl font-bold flex items-center gap-1 cursor-pointer transition"
+                          >
+                            <Eye size={14} /> View Memo
+                          </button>
+                          <button 
+                            onClick={() => handleMoveToTrash(ord, 'order')}
+                            className="bg-red-500/20 hover:bg-red-500 text-red-400 hover:text-white p-2 rounded-xl transition"
+                            title="Move Order to Bin"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2 pt-1 pb-1">
+                        <span className="text-zinc-400 font-bold mr-2">Status Actions:</span>
+                        <button 
+                          onClick={() => handleUpdateOrderStatus(ord.id, 'Processing')}
+                          className={`px-3 py-1 rounded-lg font-bold transition cursor-pointer ${currentStatus === 'Processing' ? 'bg-amber-500 text-black' : 'bg-zinc-900 text-zinc-300 hover:bg-zinc-800'}`}
+                        >
+                          Processing
+                        </button>
+                        <button 
+                          onClick={() => handleUpdateOrderStatus(ord.id, 'Verified')}
+                          className={`px-3 py-1 rounded-lg font-bold transition cursor-pointer ${currentStatus === 'Verified' ? 'bg-blue-500 text-white' : 'bg-zinc-900 text-zinc-300 hover:bg-zinc-800'}`}
+                        >
+                          Received / Verified
+                        </button>
+                        <button 
+                          onClick={() => handleUpdateOrderStatus(ord.id, 'Delivered')}
+                          className={`px-3 py-1 rounded-lg font-bold transition cursor-pointer ${currentStatus === 'Delivered' ? 'bg-emerald-500 text-black' : 'bg-zinc-900 text-zinc-300 hover:bg-zinc-800'}`}
+                        >
+                          Delivered
+                        </button>
+                        <button 
+                          onClick={() => handleUpdateOrderStatus(ord.id, 'Cancelled')}
+                          className={`px-3 py-1 rounded-lg font-bold transition cursor-pointer ${currentStatus === 'Cancelled' ? 'bg-red-500 text-white' : 'bg-zinc-900 text-zinc-300 hover:bg-zinc-800'}`}
+                        >
+                          Cancel Order
+                        </button>
+                      </div>
+
+                      <div className="space-y-1 bg-black p-3 rounded-xl border border-zinc-900">
+                        <p className="font-bold text-zinc-400 text-[11px]">Items Purchased:</p>
+                        {ord.items?.map((it: any, i: number) => (
+                          <div key={i} className="flex justify-between text-zinc-300">
+                            <span>• {it.name} (x{it.quantity})</span>
+                            <span className="font-bold text-amber-400">৳{it.price * it.quantity}</span>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-zinc-400">Address: <span className="text-white">{ord.address}</span></span>
+                        <span className="font-black text-amber-400 text-base">Total Paid: ৳{ord.totalPrice}</span>
                       </div>
                     </div>
-                    <span className="text-[11px] font-extrabold text-white">৳{item.price * item.quantity}</span>
+                  );
+                })
+              )}
+            </div>
+          )}
+
+          {/* TAB: PROCESSING ORDERS */}
+          {adminTab === 'processing' && (
+            <div className="space-y-4 text-xs">
+              <p className="font-bold text-amber-400 text-sm">Processing Orders ({processingOrders.length}):</p>
+              {processingOrders.length === 0 ? (
+                <p className="text-zinc-500 text-center py-12">No orders in Processing.</p>
+              ) : (
+                processingOrders.map((ord) => (
+                  <div key={ord.id} className="bg-zinc-950 border border-amber-500/30 rounded-2xl p-4 space-y-3 shadow-xl">
+                    <div className="flex justify-between items-center border-b border-zinc-800 pb-2">
+                      <span className="font-extrabold text-white text-sm">Customer: {ord.customerName} ({ord.phone})</span>
+                      <button onClick={() => handleUpdateOrderStatus(ord.id, 'Delivered')} className="bg-emerald-500 text-black px-3 py-1 rounded-lg font-bold">Mark Delivered</button>
+                    </div>
+                    <p className="text-zinc-400">Total: ৳{ord.totalPrice} | TrxID: {ord.trxId}</p>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+
+          {/* TAB: VERIFIED ORDERS */}
+          {adminTab === 'verified' && (
+            <div className="space-y-4 text-xs">
+              <p className="font-bold text-blue-400 text-sm">Received / Verified Orders ({verifiedOrders.length}):</p>
+              {verifiedOrders.length === 0 ? (
+                <p className="text-zinc-500 text-center py-12">No verified orders.</p>
+              ) : (
+                verifiedOrders.map((ord) => (
+                  <div key={ord.id} className="bg-zinc-950 border border-blue-500/30 rounded-2xl p-4 space-y-3 shadow-xl">
+                    <div className="flex justify-between items-center border-b border-zinc-800 pb-2">
+                      <span className="font-extrabold text-white text-sm">Customer: {ord.customerName} ({ord.phone})</span>
+                      <button onClick={() => handleUpdateOrderStatus(ord.id, 'Delivered')} className="bg-emerald-500 text-black px-3 py-1 rounded-lg font-bold">Mark Delivered</button>
+                    </div>
+                    <p className="text-zinc-400">Total: ৳{ord.totalPrice} | TrxID: {ord.trxId}</p>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+
+          {/* TAB: DELIVERED ORDERS */}
+          {adminTab === 'delivered' && (
+            <div className="space-y-4 text-xs">
+              <p className="font-bold text-emerald-400 text-sm">Delivered Orders ({deliveredOrders.length}):</p>
+              {deliveredOrders.length === 0 ? (
+                <p className="text-zinc-500 text-center py-12">No delivered orders yet.</p>
+              ) : (
+                deliveredOrders.map((ord) => (
+                  <div key={ord.id} className="bg-zinc-950 border border-emerald-500/30 rounded-2xl p-4 space-y-3 shadow-xl">
+                    <div className="flex justify-between items-center border-b border-zinc-800 pb-2">
+                      <span className="font-extrabold text-white text-sm">Customer: {ord.customerName} ({ord.phone})</span>
+                      <span className="bg-emerald-500/20 text-emerald-400 px-3 py-1 rounded font-bold">Completed</span>
+                    </div>
+                    <p className="text-zinc-400">Total: ৳{ord.totalPrice}</p>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+
+          {/* TAB: CANCELLED ORDERS */}
+          {adminTab === 'cancelled' && (
+            <div className="space-y-4 text-xs">
+              <p className="font-bold text-red-400 text-sm">Cancelled Orders ({cancelledOrders.length}):</p>
+              {cancelledOrders.length === 0 ? (
+                <p className="text-zinc-500 text-center py-12">No cancelled orders.</p>
+              ) : (
+                cancelledOrders.map((ord) => (
+                  <div key={ord.id} className="bg-zinc-950 border border-red-500/30 rounded-2xl p-4 space-y-3 shadow-xl">
+                    <div className="flex justify-between items-center border-b border-zinc-800 pb-2">
+                      <span className="font-extrabold text-white text-sm">Customer: {ord.customerName} ({ord.phone})</span>
+                      <button onClick={() => handleMoveToTrash(ord, 'order')} className="bg-red-500/20 text-red-400 px-3 py-1 rounded font-bold">Move to Bin</button>
+                    </div>
+                    <p className="text-zinc-400">Total: ৳{ord.totalPrice}</p>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+
+          {/* TAB 3: BANNERS & 5S VIDEO */}
+          {adminTab === 'banners' && (
+            <div className="space-y-6 text-xs">
+              <form onSubmit={handleAddBannerSubmit} className="bg-zinc-950 p-5 rounded-2xl border border-zinc-800 space-y-4">
+                <p className="font-bold text-amber-400 text-sm">Add New Hero Banner / 5s Video:</p>
+                
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-zinc-300 font-bold block mb-1">Title Line 1</label>
+                    <input type="text" value={newTitle1} onChange={(e) => setNewTitle1(e.target.value)} placeholder="e.g. Elevate Your" className="w-full bg-black border border-zinc-700 text-white p-2.5 rounded-xl outline-none" />
+                  </div>
+                  <div>
+                    <label className="text-zinc-300 font-bold block mb-1">Title Line 2 (Highlighted)</label>
+                    <input type="text" value={newTitle2} onChange={(e) => setNewTitle2(e.target.value)} placeholder="e.g. Lifestyle" className="w-full bg-black border border-zinc-700 text-white p-2.5 rounded-xl outline-none" />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="text-zinc-300 font-bold block mb-1">Media Type</label>
+                    <select value={newMediaType} onChange={(e) => setNewMediaType(e.target.value)} className="w-full bg-black border border-zinc-700 text-white p-2.5 rounded-xl outline-none">
+                      <option value="image">Image</option>
+                      <option value="video">5s Video (MP4)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-zinc-300 font-bold block mb-1">Target Category (Redirect)</label>
+                    <input type="text" value={newTargetCategory} onChange={(e) => setNewTargetCategory(e.target.value)} placeholder="e.g. OTT or Electronics" className="w-full bg-black border border-zinc-700 text-white p-2.5 rounded-xl outline-none" />
+                  </div>
+                  <div>
+                    <div className="flex justify-between items-center mb-1">
+                      <label className="text-zinc-300 font-bold">Banner Media Source</label>
+                      <span className="text-[10px] text-amber-400 cursor-pointer underline" onClick={() => setBannerInputType(bannerInputType === 'url' ? 'file' : 'url')}>
+                        Switch to {bannerInputType === 'url' ? 'File Upload' : 'URL Link'}
+                      </span>
+                    </div>
+                    {bannerInputType === 'url' ? (
+                      <input type="text" value={newMediaUrl} onChange={(e) => setNewMediaUrl(e.target.value)} required placeholder="https://..." className="w-full bg-black border border-zinc-700 text-white p-2.5 rounded-xl outline-none" />
+                    ) : (
+                      <input type="file" accept="image/*,video/*" onChange={(e) => handleFileUpload(e, setNewMediaUrl)} className="w-full bg-black border border-zinc-700 text-white p-2 rounded-xl text-[10px]" />
+                    )}
+                  </div>
+                </div>
+
+                <button type="submit" disabled={isAddingBanner} className="w-full bg-amber-500 hover:bg-amber-600 text-black font-extrabold py-3 rounded-xl transition cursor-pointer text-sm">
+                  {isAddingBanner ? "Publishing Banner..." : "Add to Homepage Slider"}
+                </button>
+              </form>
+
+              <div className="space-y-3">
+                <p className="font-bold text-zinc-300 text-sm">Active Homepage Banners ({adminBanners.length}):</p>
+                {adminBanners.map((banner, index) => (
+                  <div key={banner.id || index} className="bg-black border border-zinc-800 p-4 rounded-2xl flex items-center justify-between gap-3 shadow-lg">
+                    <div className="flex items-center gap-4">
+                      <div className="w-16 h-16 bg-zinc-900 rounded-xl overflow-hidden flex items-center justify-center border border-zinc-700">
+                        {banner.mediaType === 'video' ? (
+                          <video src={banner.mediaUrl} className="w-full h-full object-cover" />
+                        ) : (
+                          <img src={banner.mediaUrl} alt="Slide" className="w-full h-full object-cover" />
+                        )}
+                      </div>
+                      <div>
+                        <p className="font-bold text-white text-sm">{banner.titleLine1} <span className="text-amber-400">{banner.titleLine2}</span></p>
+                        <p className="text-xs text-zinc-400 mt-0.5">Redirect Target: <span className="text-amber-400 font-semibold">{banner.targetCategory}</span></p>
+                      </div>
+                    </div>
+                    <button 
+                      onClick={() => handleDeleteBanner(banner.id)}
+                      className="bg-red-500/20 hover:bg-red-500 text-red-400 hover:text-white p-2.5 rounded-xl transition cursor-pointer"
+                    >
+                      <Trash2 size={18} />
+                    </button>
                   </div>
                 ))}
               </div>
             </div>
+          )}
 
-            <div className="border-t border-zinc-800 pt-3 space-y-2 bg-zinc-950">
-              <div className="flex items-center justify-between text-xs">
-                <span className="font-bold text-zinc-300">Total Bill:</span>
-                <span className="text-base font-extrabold text-amber-400">৳{selectedOrder.totalPrice}</span>
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                <button onClick={() => handleUpdateOrderStatus(selectedOrder.id, 'Processing')} className="bg-blue-500/20 hover:bg-blue-500 text-blue-300 hover:text-white font-bold py-2 rounded-xl text-[11px] transition cursor-pointer">Processing</button>
-                <button onClick={() => handleUpdateOrderStatus(selectedOrder.id, 'Delivered')} className="bg-emerald-500/20 hover:bg-emerald-500 text-emerald-300 hover:text-white font-bold py-2 rounded-xl text-[11px] transition cursor-pointer">Delivered</button>
-                <button onClick={() => handleUpdateOrderStatus(selectedOrder.id, 'Cancelled')} className="bg-red-500/20 hover:bg-red-500 text-red-300 hover:text-white font-bold py-2 rounded-xl text-[11px] transition cursor-pointer">Cancel</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="max-w-6xl mx-auto space-y-8">
-        <div className="flex items-center justify-between border-b border-zinc-800 pb-4">
-          <div>
-            <h1 className="text-2xl font-extrabold text-amber-400 tracking-wider">ONE SHOP ADMIN PANEL</h1>
-            <p className="text-xs text-zinc-400">Logged in as: {adminUser.email}</p>
-          </div>
-          <div className="flex items-center gap-3">
-            <Link href="/" className="bg-zinc-900 hover:bg-zinc-800 border border-amber-500/30 text-amber-400 font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-2">
-              <ArrowLeft size={16} /> Go to Home
-            </Link>
-            <button onClick={handleAdminLogout} className="bg-red-500/10 hover:bg-red-500 text-red-400 hover:text-white border border-red-500/30 font-bold px-3 py-2 rounded-xl text-xs flex items-center gap-1 cursor-pointer">
-              <LogOut size={16} /> Logout
-            </button>
-          </div>
-        </div>
-
-        {/* Stats Bar */}
-        <div className="grid grid-cols-1 sm:grid-cols-6 gap-3">
-          <div className="bg-zinc-900/80 border border-amber-500/20 p-4 rounded-2xl flex items-center gap-3">
-            <Package size={20} className="text-amber-400" />
-            <div><p className="text-[10px] text-zinc-400">Products</p><h3 className="text-xl font-extrabold text-white">{products.length}</h3></div>
-          </div>
-          <div onClick={() => setActiveTab('orders')} className="bg-zinc-900/80 border border-amber-500/20 p-4 rounded-2xl flex items-center gap-3 cursor-pointer">
-            <ShoppingBag size={20} className="text-emerald-400" />
-            <div><p className="text-[10px] text-zinc-400">Active</p><h3 className="text-xl font-extrabold text-emerald-400">{activeOrders.length}</h3></div>
-          </div>
-          <div onClick={() => setActiveTab('processing')} className="bg-zinc-900/80 border border-amber-500/20 p-4 rounded-2xl flex items-center gap-3 cursor-pointer">
-            <Loader2 size={20} className="text-blue-400" />
-            <div><p className="text-[10px] text-zinc-400">Processing</p><h3 className="text-xl font-extrabold text-blue-400">{processingOrders.length}</h3></div>
-          </div>
-          <div onClick={() => setActiveTab('delivery')} className="bg-zinc-900/80 border border-amber-500/20 p-4 rounded-2xl flex items-center gap-3 cursor-pointer">
-            <Clock size={20} className="text-emerald-400" />
-            <div><p className="text-[10px] text-zinc-400">Delivered</p><h3 className="text-xl font-extrabold text-emerald-400">{deliveredOrders.length}</h3></div>
-          </div>
-          <div onClick={() => setActiveTab('trending')} className="bg-zinc-900/80 border border-amber-500/20 p-4 rounded-2xl flex items-center gap-3 cursor-pointer">
-            <TrendingUp size={20} className="text-amber-400" />
-            <div><p className="text-[10px] text-zinc-400">Best Selling</p><h3 className="text-xl font-extrabold text-amber-400">{trendingProducts.length}</h3></div>
-          </div>
-          <div onClick={() => setActiveTab('recycle')} className="bg-zinc-900/80 border border-amber-500/20 p-4 rounded-2xl flex items-center gap-3 cursor-pointer">
-            <Trash2 size={20} className="text-red-400" />
-            <div><p className="text-[10px] text-zinc-400">Recycle</p><h3 className="text-xl font-extrabold text-red-400">{recycleBinOrders.length}</h3></div>
-          </div>
-        </div>
-
-        {/* Tabs */}
-        <div className="flex flex-wrap gap-2 border-b border-zinc-800 pb-2">
-          <button onClick={() => setActiveTab('products')} className={`px-4 py-2 rounded-xl text-xs font-bold cursor-pointer ${activeTab === 'products' ? 'bg-amber-500 text-black' : 'bg-zinc-900 text-zinc-300'}`}>Products & Upload</button>
-          <button onClick={() => setActiveTab('orders')} className={`px-4 py-2 rounded-xl text-xs font-bold cursor-pointer ${activeTab === 'orders' ? 'bg-amber-500 text-black' : 'bg-zinc-900 text-zinc-300'}`}>Active Orders ({activeOrders.length})</button>
-          <button onClick={() => setActiveTab('processing')} className={`px-4 py-2 rounded-xl text-xs font-bold cursor-pointer ${activeTab === 'processing' ? 'bg-amber-500 text-black' : 'bg-zinc-900 text-zinc-300'}`}>Processing Board ({processingOrders.length})</button>
-          <button onClick={() => setActiveTab('delivery')} className={`px-4 py-2 rounded-xl text-xs font-bold cursor-pointer ${activeTab === 'delivery' ? 'bg-amber-500 text-black' : 'bg-zinc-900 text-zinc-300'}`}>Delivery Board ({deliveredOrders.length})</button>
-          <button onClick={() => setActiveTab('trending')} className={`px-4 py-2 rounded-xl text-xs font-bold cursor-pointer flex items-center gap-1.5 ${activeTab === 'trending' ? 'bg-amber-500 text-black' : 'bg-zinc-900 text-zinc-300'}`}><TrendingUp size={14} /> Best Selling ({trendingProducts.length})</button>
-          <button onClick={() => setActiveTab('recycle')} className={`px-4 py-2 rounded-xl text-xs font-bold cursor-pointer ${activeTab === 'recycle' ? 'bg-amber-500 text-black' : 'bg-zinc-900 text-zinc-300'}`}>Recycle Bin ({recycleBinOrders.length})</button>
-          <button onClick={() => setActiveTab('admins')} className={`px-4 py-2 rounded-xl text-xs font-bold cursor-pointer ${activeTab === 'admins' ? 'bg-amber-500 text-black' : 'bg-zinc-900 text-zinc-300'}`}>Admin Approvals {pendingRequests.length > 0 && `(${pendingRequests.length})`}</button>
-        </div>
-
-        {activeTab === 'products' ? (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <div className="lg:col-span-1 bg-zinc-900/50 border border-amber-500/20 p-6 rounded-2xl space-y-4">
-              <h2 className="text-lg font-bold text-white flex items-center gap-2"><Plus size={20} className="text-amber-400" /> Upload New Product</h2>
-              <form onSubmit={handleAddProduct} className="space-y-4 text-xs">
-                <div><label className="font-bold text-zinc-300 block mb-1">Title *</label><input type="text" value={name} onChange={(e) => setName(e.target.value)} required placeholder="Netflix Premium" className="w-full bg-black border border-zinc-700 text-white p-2.5 rounded-xl outline-none" /></div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div><label className="font-bold text-zinc-300 block mb-1">Price (৳) *</label><input type="number" value={price} onChange={(e) => setPrice(e.target.value)} required placeholder="350" className="w-full bg-black border border-zinc-700 text-white p-2.5 rounded-xl outline-none" /></div>
-                  <div><label className="font-bold text-zinc-300 block mb-1">Original Price</label><input type="number" value={originalPrice} onChange={(e) => setOriginalPrice(e.target.value)} placeholder="500" className="w-full bg-black border border-zinc-700 text-white p-2.5 rounded-xl outline-none" /></div>
+          {/* TRASH BIN TAB */}
+          {adminTab === 'trash' && (
+            <div className="space-y-4 text-xs">
+              <div className="bg-red-500/10 border border-red-500/30 p-4 rounded-2xl flex items-center justify-between">
+                <div>
+                  <h3 className="font-extrabold text-red-400 text-sm flex items-center gap-2">
+                    <Trash2 size={18} /> Trash Bin & Recovery Hub
+                  </h3>
+                  <p className="text-zinc-400 text-[11px] mt-0.5">Deleted products and orders are stored here. You can restore them anytime.</p>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div><label className="font-bold text-zinc-300 block mb-1">Discount Tag</label><input type="text" value={discount} onChange={(e) => setDiscount(e.target.value)} placeholder="-30%" className="w-full bg-black border border-zinc-700 text-white p-2.5 rounded-xl outline-none" /></div>
-                  <div><label className="font-bold text-zinc-300 block mb-1">Category</label><select value={category} onChange={(e) => setCategory(e.target.value)} className="w-full bg-black border border-zinc-700 text-white p-2.5 rounded-xl outline-none">{categoriesList.map((c, i)=><option key={i} value={c}>{c}</option>)}</select></div>
-                </div>
-                <div><label className="font-bold text-zinc-300 block mb-1">Image URL *</label><input type="text" value={image} onChange={(e) => setImage(e.target.value)} required placeholder="https://..." className="w-full bg-black border border-zinc-700 text-white p-2.5 rounded-xl outline-none" /></div>
-                <div><label className="font-bold text-zinc-300 block mb-1">Description</label><textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Product description..." className="w-full bg-black border border-zinc-700 text-white p-2.5 rounded-xl outline-none h-20 resize-none"></textarea></div>
-                <button type="submit" disabled={isSubmitting} className="w-full bg-amber-400 hover:bg-amber-500 text-black font-extrabold py-3 rounded-xl cursor-pointer transition shadow-lg shadow-amber-500/20">Upload Product</button>
-              </form>
-            </div>
+              </div>
 
-            <div className="lg:col-span-2 bg-zinc-900/50 border border-amber-500/20 p-6 rounded-2xl space-y-4">
-              <h2 className="text-lg font-bold text-white">Manage Products ({products.length})</h2>
-              <div className="space-y-3 max-h-[500px] overflow-y-auto pr-1">
-                {products.length === 0 ? (
-                  <p className="text-zinc-500 text-center py-10 text-xs">No products uploaded yet.</p>
+              <div className="space-y-3">
+                {trashItems.length === 0 ? (
+                  <p className="text-zinc-500 text-center py-12">Trash bin is empty.</p>
                 ) : (
-                  products.map(item => (
-                    <div key={item.id} className="bg-black border border-zinc-800 p-3 rounded-xl flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <img src={item.image} alt={item.name} className="w-12 h-12 object-cover rounded-lg" />
-                        <div><h4 className="font-bold text-sm text-white">{item.name}</h4><p className="text-xs text-amber-400 font-extrabold">৳{item.price}</p></div>
+                  trashItems.map((item) => (
+                    <div key={item.id} className="bg-black border border-zinc-800 p-4 rounded-2xl flex items-center justify-between gap-3 shadow-lg">
+                      <div>
+                        <span className="text-[10px] bg-red-500/20 text-red-400 font-bold px-2 py-0.5 rounded uppercase">{item.itemType}</span>
+                        <p className="font-bold text-white text-sm mt-1">{item.data?.name || item.data?.customerName || "Deleted Item"}</p>
+                        <p className="text-[10px] text-zinc-400">Price / Total: ৳{item.data?.price || item.data?.totalPrice}</p>
                       </div>
-                      <button onClick={() => handleDeleteProduct(item.id)} className="bg-red-500/10 hover:bg-red-500 text-red-400 hover:text-white p-2 rounded-xl text-xs font-bold cursor-pointer"><Trash2 size={16} /></button>
+
+                      <div className="flex items-center gap-2">
+                        <button 
+                          onClick={() => handleRestoreFromTrash(item.id, item.data, item.itemType)}
+                          className="bg-emerald-500 hover:bg-emerald-600 text-black px-3 py-2 rounded-xl font-bold flex items-center gap-1 cursor-pointer transition"
+                        >
+                          <RefreshCcw size={14} /> Restore
+                        </button>
+                        <button 
+                          onClick={() => handlePermanentDelete(item.id)}
+                          className="bg-red-500/20 hover:bg-red-500 text-red-400 hover:text-white border border-red-500/40 px-3 py-2 rounded-xl font-bold transition cursor-pointer"
+                        >
+                          Delete Forever
+                        </button>
+                      </div>
                     </div>
                   ))
                 )}
               </div>
             </div>
-          </div>
-        ) : activeTab === 'orders' ? (
-          <div className="bg-zinc-900/50 border border-amber-500/20 p-6 rounded-2xl space-y-6">
-            <h2 className="text-lg font-bold text-white">Active Customer Orders ({activeOrders.length})</h2>
-            {activeOrders.length === 0 ? (
-              <p className="text-zinc-500 text-center py-10 text-xs">No active orders right now.</p>
-            ) : (
-              activeOrders.map((order, idx) => (
-                <div key={idx} onClick={() => setSelectedOrder(order)} className="bg-black border border-amber-500/20 p-5 rounded-2xl space-y-4 hover:border-amber-500 cursor-pointer transition shadow-lg">
-                  <div className="flex justify-between items-center border-b border-zinc-800 pb-3">
-                    <div>
-                      <span className="text-[10px] bg-amber-500/20 text-amber-400 px-2.5 py-1 rounded-full font-bold">ID: {order.id.slice(0, 8)}...</span>
-                      <span className="ml-2 text-[10px] bg-amber-500 text-black px-2 py-0.5 rounded font-bold">New</span>
-                      <p className="text-xs text-zinc-400 mt-1">{order.customerName} | {order.phone}</p>
-                    </div>
-                    <span className="text-amber-400 font-extrabold text-base">৳{order.totalPrice}</span>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        ) : activeTab === 'processing' ? (
-          <div className="bg-zinc-900/50 border border-blue-500/20 p-6 rounded-2xl space-y-6">
-            <h2 className="text-lg font-bold text-white">Processing Board ({processingOrders.length})</h2>
-            {processingOrders.length === 0 ? (
-              <p className="text-zinc-500 text-center py-10 text-xs">No orders in processing.</p>
-            ) : (
-              processingOrders.map((order, idx) => (
-                <div key={idx} onClick={() => setSelectedOrder(order)} className="bg-black border border-blue-500/30 p-5 rounded-2xl space-y-3 cursor-pointer hover:border-blue-400 transition">
-                  <div className="flex justify-between items-center border-b border-zinc-800 pb-2">
-                    <span className="text-xs font-bold text-blue-400">ID: {order.id.slice(0, 8)}...</span>
-                    <span className="text-xs bg-blue-500/20 text-blue-300 px-3 py-1 rounded-full font-bold">Processing</span>
-                  </div>
-                  <p className="text-xs text-zinc-300">{order.customerName} - {order.phone}</p>
-                </div>
-              ))
-            )}
-          </div>
-        ) : activeTab === 'delivery' ? (
-          <div className="bg-zinc-900/50 border border-emerald-500/20 p-6 rounded-2xl space-y-6">
-            <h2 className="text-lg font-bold text-white">Delivery Board ({deliveredOrders.length})</h2>
-            {deliveredOrders.length === 0 ? (
-              <p className="text-zinc-500 text-center py-10 text-xs">No delivered orders recorded.</p>
-            ) : (
-              deliveredOrders.map((order, idx) => (
-                <div key={idx} onClick={() => setSelectedOrder(order)} className="bg-black border border-emerald-500/30 p-5 rounded-2xl space-y-3 cursor-pointer hover:border-emerald-400 transition">
-                  <div className="flex justify-between items-center border-b border-zinc-800 pb-2">
-                    <span className="text-xs font-bold text-emerald-400">ID: {order.id.slice(0, 8)}...</span>
-                    <span className="text-xs bg-emerald-500/20 text-emerald-300 px-3 py-1 rounded-full font-bold">Delivered</span>
-                  </div>
-                  <p className="text-xs text-zinc-300">{order.customerName} - {order.phone}</p>
-                </div>
-              ))
-            )}
-          </div>
-        ) : activeTab === 'trending' ? (
-          <div className="bg-zinc-900/50 border border-amber-500/20 p-6 rounded-2xl space-y-6">
-            <h2 className="text-lg font-bold text-white">Automatic Best Selling Products</h2>
-            {trendingProducts.length === 0 ? (
-              <p className="text-zinc-500 text-center py-10 text-xs">No sales data available yet.</p>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                {trendingProducts.map((prod: any, idx: number) => (
-                  <div key={idx} className="bg-black border border-amber-500/40 p-4 rounded-2xl flex items-center gap-4 relative shadow-lg">
-                    <span className="absolute top-3 right-3 bg-amber-500 text-black text-[10px] font-extrabold px-2 py-0.5 rounded-full">#{idx + 1}</span>
-                    <img src={prod.image} alt={prod.name} className="w-14 h-14 object-cover rounded-xl" />
-                    <div>
-                      <h4 className="font-bold text-sm text-white line-clamp-1">{prod.name}</h4>
-                      <p className="text-xs text-amber-400 font-extrabold mt-1">৳{prod.price}</p>
-                      <p className="text-[10px] text-emerald-400 mt-0.5">Sold: {prod.count}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        ) : activeTab === 'admins' ? (
-          <div className="bg-zinc-900/50 border border-amber-500/20 p-6 rounded-2xl space-y-6">
-            <h2 className="text-lg font-bold text-white flex items-center gap-2">
-              <ShieldCheck className="text-amber-400" size={22} /> Admin Access Approvals
-            </h2>
-            {pendingRequests.length === 0 ? (
-              <p className="text-xs text-zinc-500 italic bg-black/40 p-6 rounded-xl border border-zinc-800 text-center">No pending admin requests.</p>
-            ) : (
-              <div className="space-y-3">
-                {pendingRequests.map((email, idx) => (
-                  <div key={idx} className="bg-black border border-amber-500/40 p-4 rounded-xl flex items-center justify-between gap-4">
-                    <p className="text-xs font-bold text-white">{email}</p>
-                    <div className="flex items-center gap-2">
-                      <button onClick={() => handleApproveAdmin(email)} className="bg-emerald-500 hover:bg-emerald-600 text-black font-extrabold px-4 py-2 rounded-lg text-xs transition cursor-pointer flex items-center gap-1">
-                        <Check size={14} /> Approve
-                      </button>
-                      <button onClick={() => handleDeclineAdmin(email)} className="bg-red-500/20 hover:bg-red-500 text-red-400 hover:text-white font-bold px-4 py-2 rounded-lg text-xs transition cursor-pointer flex items-center gap-1">
-                        <Ban size={14} /> Decline
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="bg-zinc-900/50 border border-red-500/20 p-6 rounded-2xl space-y-6">
-            <h2 className="text-lg font-bold text-white">Recycle Bin (Cancelled Orders)</h2>
-            {recycleBinOrders.length === 0 ? (
-              <p className="text-zinc-500 text-center py-10 text-xs">Recycle bin is empty.</p>
-            ) : (
-              recycleBinOrders.map((order, idx) => (
-                <div key={idx} className="bg-black border border-red-500/30 p-4 rounded-xl flex items-center justify-between">
-                  <div>
-                    <p className="text-xs font-bold text-white">ID: {order.id.slice(0, 8)}... | {order.customerName}</p>
-                    <p className="text-[10px] text-red-400 mt-1">Auto-purge in 2 days</p>
-                  </div>
-                  <div className="flex gap-2">
-                    <button onClick={() => handleRestoreOrder(order.id)} className="bg-blue-500/20 text-blue-400 px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer"><RefreshCw size={14} /></button>
-                    <button onClick={() => handlePermanentDeleteOrder(order.id)} className="bg-red-500/20 text-red-400 px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer"><Trash2 size={14} /></button>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        )}
+          )}
 
-      </div>
+          {/* TAB: APPROVALS */}
+          {adminTab === 'approvals' && user?.email?.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase() && (
+            <div className="space-y-4 text-xs">
+              <div className="bg-emerald-500/10 border border-emerald-500/30 p-4 rounded-2xl flex items-center justify-between">
+                <div>
+                  <h3 className="font-extrabold text-emerald-400 text-sm flex items-center gap-2">
+                    <ShieldCheck size={18} /> Admin Approval & Access Control Panel
+                  </h3>
+                  <p className="text-zinc-400 text-[11px] mt-0.5">Manage users requesting Admin access to One Shop Dashboard.</p>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                {adminUsers.length === 0 ? (
+                  <p className="text-zinc-500 text-center py-12">No admin requests yet.</p>
+                ) : (
+                  adminUsers.map((u) => {
+                    const isApproved = u.status === 'Approved';
+                    return (
+                      <div key={u.id} className="bg-black border border-zinc-800 p-4 rounded-2xl flex items-center justify-between gap-3 shadow-lg">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-xs ${isApproved ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' : 'bg-amber-500/20 text-amber-400 border border-amber-500/40'}`}>
+                            {u.email?.slice(0, 2).toUpperCase()}
+                          </div>
+                          <div>
+                            <p className="font-bold text-white text-sm">{u.email}</p>
+                            <p className="text-[10px] text-zinc-400">
+                              Role: <span className="text-amber-400 font-semibold">{u.role || 'Admin User'}</span> | Status: 
+                              <span className={`font-bold ml-1 ${isApproved ? 'text-emerald-400' : 'text-amber-400'}`}>{u.status || 'Pending'}</span>
+                            </p>
+                          </div>
+                        </div>
+
+                        {u.email?.toLowerCase() !== SUPER_ADMIN_EMAIL.toLowerCase() && (
+                          <div className="flex items-center gap-2">
+                            {!isApproved ? (
+                              <button 
+                                onClick={() => handleApproveAdminUser(u.id, 'Approved')}
+                                className="bg-emerald-500 hover:bg-emerald-600 text-black px-3.5 py-2 rounded-xl font-extrabold text-xs flex items-center gap-1 shadow-lg transition cursor-pointer"
+                              >
+                                <UserCheck size={14} /> Approve Access
+                              </button>
+                            ) : (
+                              <button 
+                                onClick={() => handleApproveAdminUser(u.id, 'Revoked')}
+                                className="bg-red-500/20 hover:bg-red-500 text-red-400 hover:text-white border border-red-500/40 px-3.5 py-2 rounded-xl font-bold text-xs flex items-center gap-1 transition cursor-pointer"
+                              >
+                                <UserX size={14} /> Revoke Access
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          )}
+
+        </div>
+      )}
+
+      {/* Invoice Modal for Admin */}
+      {selectedInvoice && (
+        <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-white text-black rounded-2xl p-6 relative shadow-2xl space-y-4">
+            <button onClick={() => setSelectedInvoice(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-black cursor-pointer font-bold">
+              ✕
+            </button>
+            <div className="text-center border-b border-zinc-200 pb-3">
+              <h2 className="font-black text-xl tracking-wider text-black">ONE SHOP CASH MEMO</h2>
+              <p className="text-xs text-zinc-500">Customer Order Receipt</p>
+            </div>
+            <div className="space-y-2 text-xs">
+              <p><strong>Customer:</strong> {selectedInvoice.customerName}</p>
+              <p><strong>Phone:</strong> {selectedInvoice.phone}</p>
+              <p><strong>Address:</strong> {selectedInvoice.address}</p>
+              <p><strong>Payment Method:</strong> {selectedInvoice.paymentMethod} (TrxID: {selectedInvoice.trxId})</p>
+            </div>
+            <div className="border-t border-b border-zinc-200 py-3 space-y-2 text-xs">
+              <p className="font-bold text-zinc-800">Purchased Items:</p>
+              {selectedInvoice.items?.map((it: any, idx: number) => (
+                <div key={idx} className="flex justify-between">
+                  <span>{it.name} (x{it.quantity})</span>
+                  <span>৳{it.price * it.quantity}</span>
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-between font-extrabold text-sm">
+              <span>Total Paid Amount:</span>
+              <span className="text-amber-600">৳{selectedInvoice.totalPrice}</span>
+            </div>
+            <div className="pt-2">
+              <button 
+                onClick={() => { window.print(); }} 
+                className="w-full bg-black hover:bg-zinc-800 text-white font-bold py-2.5 rounded-xl text-xs transition cursor-pointer"
+              >
+                Print / Download Invoice
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
