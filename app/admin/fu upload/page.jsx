@@ -6,7 +6,7 @@ export default function OrderCard({ order }) {
   // order object theke data gulo alada kore nooya holo
   const {
     customerName = "Mahabubur kajon",
-    customerPhone = "01571282946", // Eta customer-er WhatsApp number hobe
+    customerPhone = "01571282946", 
     customerEmail = "customer@gmail.com",
     paymentMethod = "bKash",
     trxId = "gjghjghhjg",
@@ -32,33 +32,33 @@ export default function OrderCard({ order }) {
 
         <div className="flex items-center gap-2">
           {/* View Memo Button */}
-          <button className="bg-zinc-800 hover:bg-zinc-700 border border-yellow-500/50 text-yellow-400 px-3 py-1.5 rounded-lg text-sm font-semibold flex items-center gap-1 transition">
+          <button className="bg-zinc-800 hover:bg-zinc-700 border border-yellow-500/50 text-yellow-400 px-3 py-1.5 rounded-lg text-sm font-semibold flex items-center gap-1 transition cursor-pointer">
             👁️ View Memo
           </button>
           {/* Delete Button */}
-          <button className="bg-red-900/40 hover:bg-red-700 text-red-400 hover:text-white p-2 rounded-lg border border-red-600/50 transition">
+          <button className="bg-red-900/40 hover:bg-red-700 text-red-400 hover:text-white p-2 rounded-lg border border-red-600/50 transition cursor-pointer">
             🗑️
           </button>
         </div>
       </div>
 
-      {/* 2. Customer Contact & WhatsApp Direct Link Section */}
-      <div className="bg-black/50 p-3 rounded-lg border border-zinc-800 mb-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+      {/* 2. Customer Contact & WhatsApp Direct Link Section (NEW) */}
+      <div className="bg-black/60 p-3.5 rounded-lg border border-yellow-500/30 mb-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
         <div className="text-sm space-y-1">
           <p className="text-zinc-300">
-            ✉️ Email: <span className="text-yellow-400">{customerEmail}</span>
+            ✉️ Email: <span className="text-yellow-400 font-medium">{order.email || customerEmail}</span>
           </p>
           <p className="text-zinc-300">
-            📞 WhatsApp: <span className="text-yellow-400">{customerPhone}</span>
+            📞 WhatsApp: <span className="text-yellow-400 font-medium">{order.whatsapp || order.phone || customerPhone}</span>
           </p>
         </div>
 
         {/* Direct WhatsApp Chat Button */}
         <a
-          href={`https://wa.me/${customerPhone.replace(/[^0-9]/g, "")}?text=Hello%20${encodeURIComponent(customerName)},%20regarding%20your%20order%20at%20One%20Shop...`}
+          href={`https://wa.me/${(order.whatsapp || order.phone || customerPhone).replace(/[^0-9]/g, "")}?text=Hello%20${encodeURIComponent(customerName)},%20regarding%20your%20order%20at%20One%20Shop...`}
           target="_blank"
           rel="noopener noreferrer"
-          className="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition shadow"
+          className="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition shadow cursor-pointer"
         >
           💬 Chat on WhatsApp
         </a>
@@ -71,9 +71,9 @@ export default function OrderCard({ order }) {
           <span className="px-3 py-1 bg-yellow-500/20 border border-yellow-500 text-yellow-400 rounded-full text-xs font-bold">
             {status}
           </span>
-          <button className="px-3 py-1 bg-zinc-800 hover:bg-zinc-700 rounded text-xs transition">Mark Received / Verified</button>
-          <button className="px-3 py-1 bg-zinc-800 hover:bg-zinc-700 rounded text-xs transition">Mark Delivered</button>
-          <button className="px-3 py-1 bg-red-950/60 hover:bg-red-900 text-red-400 rounded text-xs transition">Cancel Order</button>
+          <button className="px-3 py-1 bg-zinc-800 hover:bg-zinc-700 rounded text-xs transition cursor-pointer">Mark Received / Verified</button>
+          <button className="px-3 py-1 bg-zinc-800 hover:bg-zinc-700 rounded text-xs transition cursor-pointer">Mark Delivered</button>
+          <button className="px-3 py-1 bg-red-950/60 hover:bg-red-900 text-red-400 rounded text-xs transition cursor-pointer">Cancel Order</button>
         </div>
       </div>
 
