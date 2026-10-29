@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { 
-  LayoutDashboard, Package, ShoppingBag, Flame, Plus, Trash2, Search, Eye, Key, CheckCircle2, ArrowLeft, ShieldCheck, UserCheck, UserX, Users, LogIn, LogOut, RefreshCcw
+  LayoutDashboard, Package, ShoppingBag, Flame, Plus, Trash2, Search, Eye, EyeOff, Key, CheckCircle2, ArrowLeft, ShieldCheck, UserCheck, UserX, Users, LogIn, LogOut, RefreshCcw, Download, Filter, Hash, UploadCloud, Clock
 } from 'lucide-react';
 
 // Firebase Import
@@ -23,13 +23,17 @@ export default function AdminPage() {
   const [user, setUser] = useState<any>(null);
   const [adminAuthPass, setAdminAuthPass] = useState('');
   const [emailInput, setEmailInput] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [isPendingApproval, setIsPendingApproval] = useState(false);
   
-  const [adminTab, setAdminTab] = useState<'products' | 'orders' | 'banners' | 'approvals' | 'trash' | 'processing' | 'verified' | 'delivered' | 'cancelled'>('products');
+  const [adminTab, setAdminTab] = useState<'products' | 'orders' | 'uploads' | 'banners' | 'approvals' | 'trash' | 'processing' | 'verified' | 'delivered' | 'cancelled'>('products');
   const [adminProductSearch, setAdminProductSearch] = useState('');
+  
+  const [orderSearchQuery, setOrderSearchQuery] = useState('');
+  const [orderStatusFilter, setOrderStatusFilter] = useState('All');
+
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Database Items States
   const [products, setProducts] = useState<any[]>([]);
   const [allOrdersList, setAllOrdersList] = useState<any[]>([]);
   const [adminBanners, setAdminBanners] = useState<any[]>([]);
@@ -41,6 +45,7 @@ export default function AdminPage() {
   const [prodPrice, setProdPrice] = useState('');
   const [prodOldPrice, setProdOldPrice] = useState('');
   const [prodCategory, setProdCategory] = useState('OTT');
+  const [prodCustomId, setProdCustomId] = useState(''); 
   
   const [prodImageInputType, setProdImageInputType] = useState<'url' | 'file'>('url');
   const [prodImage, setProdImage] = useState('');
@@ -49,8 +54,8 @@ export default function AdminPage() {
 
   const [prodDesc, setProdDesc] = useState('');
   const [isAddingProduct, setIsAddingProduct] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
 
-  // Form States - New Banner / 5s Video
   const [newTitle1, setNewTitle1] = useState('');
   const [newTitle2, setNewTitle2] = useState('');
   const [newDesc, setNewDesc] = useState('');
@@ -62,7 +67,6 @@ export default function AdminPage() {
   const [newTargetCategory, setNewTargetCategory] = useState('OTT');
   const [isAddingBanner, setIsAddingBanner] = useState(false);
 
-  // Selected Invoice State for Viewing
   const [selectedInvoice, setSelectedInvoice] = useState<any>(null);
 
   const categoriesList = [
@@ -75,19 +79,24 @@ export default function AdminPage() {
     setTimeout(() => setToastMessage(null), 3000);
   };
 
+  useEffect(() => {
+    const randomNum = Math.floor(1000 + Math.random() * 9000);
+    const prefix = prodCategory ? prodCategory.slice(0, 3).toUpperCase() : "PRD";
+    setProdCustomId(`${prefix}-${randomNum}`);
+  }, [prodCategory]);
+
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, setter: (val: string) => void) => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
       reader.onloadend = () => {
-        setter(reader.result as string);
+        setter((reader.result as string) || '');
         showToast("File uploaded successfully!");
       };
       reader.readAsDataURL(file);
     }
   };
 
-  // Auth & Admin Approval Check Effect
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
@@ -127,7 +136,6 @@ export default function AdminPage() {
     return () => unsubscribe();
   }, []);
 
-  // Fetch Live Database Items
   useEffect(() => {
     const qProd = query(collection(db, "products"), orderBy("createdAt", "desc"));
     const unsubProd = onSnapshot(qProd, (snapshot) => {
@@ -163,7 +171,6 @@ export default function AdminPage() {
     };
   }, []);
 
-  // Strict Email/Password Login (No Automatic Account Creation)
   const handleEmailPasswordLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -208,8 +215,13 @@ export default function AdminPage() {
     }
 
     setIsAddingProduct(true);
+    setUploadProgress(40);
+
     try {
+      setUploadProgress(100);
+
       await addDoc(collection(db, "products"), {
+        productId: prodCustomId,
         name: prodName,
         price: Number(prodPrice),
         originalPrice: prodOldPrice ? Number(prodOldPrice) : null,
@@ -219,17 +231,28 @@ export default function AdminPage() {
         description: prodDesc || "High quality product.",
         createdAt: serverTimestamp()
       });
-      showToast("Product published live!");
+
+      showToast("Product published live with ID: " + prodCustomId);
+
       setProdName('');
       setProdPrice('');
       setProdOldPrice('');
       setProdImage('');
       setProdVideo('');
       setProdDesc('');
-    } catch (error: any) {
-      showToast("Error adding product: " + error.message);
-    } finally {
+
+      const randomNum = Math.floor(1000 + Math.random() * 9000);
+      const prefix = prodCategory ? prodCategory.slice(0, 3).toUpperCase() : "PRD";
+      setProdCustomId(`${prefix}-${randomNum}`);
+
       setIsAddingProduct(false);
+      setUploadProgress(0);
+      setAdminTab('uploads');
+
+    } catch (error: any) {
+      setIsAddingProduct(false);
+      setUploadProgress(0);
+      showToast("Error adding product: " + error.message);
     }
   };
 
@@ -259,6 +282,7 @@ export default function AdminPage() {
     try {
       if (itemType === 'product') {
         await addDoc(collection(db, "products"), {
+          productId: itemData.productId || "PRD-1000",
           name: itemData.name,
           price: itemData.price,
           originalPrice: itemData.originalPrice || null,
@@ -350,9 +374,47 @@ export default function AdminPage() {
     }
   };
 
+  const handleExportOrdersCSV = () => {
+    if (allOrdersList.length === 0) {
+      showToast("No orders to export!");
+      return;
+    }
+    const headers = "Customer Name,Phone,Email,Address,Payment Method,TrxID,Total Price,Status\n";
+    const rows = allOrdersList.map(o => 
+      `"${o.customerName || ''}","${o.phone || ''}","${o.customerEmail || o.email || ''}","${o.address || ''}","${o.paymentMethod || ''}","${o.trxId || ''}","${o.totalPrice || 0}","${o.status || 'Pending'}"`
+    ).join("\n");
+
+    const blob = new Blob([headers + rows], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `oneshop_orders_report_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast("Orders exported successfully!");
+  };
+
   const filteredProducts = adminProductSearch.trim() === "" 
     ? products 
-    : products.filter(p => p.name?.toLowerCase().includes(adminProductSearch.toLowerCase()) || p.category?.toLowerCase().includes(adminProductSearch.toLowerCase()));
+    : products.filter(p => 
+        p.name?.toLowerCase().includes(adminProductSearch.toLowerCase()) || 
+        p.category?.toLowerCase().includes(adminProductSearch.toLowerCase()) ||
+        p.productId?.toLowerCase().includes(adminProductSearch.toLowerCase())
+      );
+
+  const filteredOrders = allOrdersList.filter(ord => {
+    const q = orderSearchQuery.toLowerCase();
+    const nameMatch = ord.customerName?.toLowerCase().includes(q) || false;
+    const phoneMatch = ord.phone?.toLowerCase().includes(q) || false;
+    const emailMatch = (ord.customerEmail || ord.email || '').toLowerCase().includes(q);
+    const trxMatch = (ord.trxId || '').toLowerCase().includes(q);
+    
+    const matchesSearch = nameMatch || phoneMatch || emailMatch || trxMatch;
+    
+    if (orderStatusFilter === 'All') return matchesSearch;
+    return matchesSearch && ((ord.status || 'Pending') === orderStatusFilter);
+  });
 
   const processingOrders = allOrdersList.filter(o => (o.status || 'Pending') === 'Processing');
   const verifiedOrders = allOrdersList.filter(o => o.status === 'Verified');
@@ -377,7 +439,7 @@ export default function AdminPage() {
           <LayoutDashboard className="text-amber-400" size={28} />
           <div>
             <h1 className="text-xl sm:text-2xl font-extrabold text-white">One Shop Admin Portal</h1>
-            <p className="text-xs text-zinc-400">Independent Admin Panel & Control Hub</p>
+            <p className="text-xs text-zinc-400">Multi-Product Upload & Control Hub</p>
           </div>
         </div>
 
@@ -385,7 +447,7 @@ export default function AdminPage() {
           {user && (
             <button 
               onClick={() => signOut(auth)}
-              className="bg-red-500/20 hover:bg-red-500 text-red-400 hover:text-white px-3 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+              className="bg-red-500/25 hover:bg-red-500 text-red-400 hover:text-white px-3 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer"
             >
               <LogOut size={14} /> Logout ({user.email?.split('@')[0]})
             </button>
@@ -419,17 +481,28 @@ export default function AdminPage() {
                 className="w-full bg-black border border-zinc-700 text-white p-2.5 rounded-xl outline-none text-xs"
               />
             </div>
+            
             <div>
               <label className="text-xs font-bold text-zinc-300 block mb-1">Admin Password</label>
-              <input 
-                type="password" 
-                value={adminAuthPass} 
-                onChange={(e) => setAdminAuthPass(e.target.value)} 
-                placeholder="••••••••••••" 
-                required
-                className="w-full bg-black border border-zinc-700 text-white p-2.5 rounded-xl outline-none text-xs"
-              />
+              <div className="relative">
+                <input 
+                  type={showPassword ? "text" : "password"} 
+                  value={adminAuthPass} 
+                  onChange={(e) => setAdminAuthPass(e.target.value)} 
+                  placeholder="••••••••••••" 
+                  required
+                  className="w-full bg-black border border-zinc-700 text-white p-2.5 pr-10 rounded-xl outline-none text-xs"
+                />
+                <button 
+                  type="button" 
+                  onClick={() => setShowPassword(!showPassword)} 
+                  className="absolute right-3 top-2.5 text-zinc-400 hover:text-amber-400 cursor-pointer"
+                >
+                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
             </div>
+
             <button type="submit" className="w-full bg-amber-500 hover:bg-amber-600 text-black font-extrabold py-3 rounded-xl transition cursor-pointer text-sm shadow-lg shadow-amber-500/20">
               Sign In to Admin Panel
             </button>
@@ -483,6 +556,13 @@ export default function AdminPage() {
             </button>
             
             <button 
+              onClick={() => setAdminTab('uploads')} 
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition shrink-0 ${adminTab === 'uploads' ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20' : 'bg-zinc-900 text-amber-400 border border-amber-500/30 hover:bg-zinc-800'}`}
+            >
+              <UploadCloud size={14} /> Uploads Product ({products.length})
+            </button>
+
+            <button 
               onClick={() => setAdminTab('processing')} 
               className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition shrink-0 ${adminTab === 'processing' ? 'bg-amber-500 text-black' : 'bg-zinc-900 text-amber-400 border border-amber-500/30 hover:bg-zinc-800'}`}
             >
@@ -535,7 +615,12 @@ export default function AdminPage() {
           {adminTab === 'products' && (
             <div className="space-y-6 text-xs">
               <form onSubmit={handleAddProductSubmit} className="bg-zinc-950 p-5 rounded-2xl border border-zinc-800 space-y-4">
-                <p className="font-bold text-amber-400 text-sm flex items-center gap-1"><Plus size={16} /> Add New Product:</p>
+                <div className="flex items-center justify-between">
+                  <p className="font-bold text-amber-400 text-sm flex items-center gap-1"><Plus size={16} /> Add New Product:</p>
+                  <div className="bg-amber-500/10 border border-amber-500/30 text-amber-400 px-3 py-1 rounded-xl font-mono font-bold text-xs flex items-center gap-1">
+                    <Hash size={12} /> Auto ID: {prodCustomId}
+                  </div>
+                </div>
                 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
@@ -562,6 +647,7 @@ export default function AdminPage() {
                     </select>
                   </div>
 
+                  {/* Product Image Input */}
                   <div>
                     <div className="flex justify-between items-center mb-1">
                       <label className="text-zinc-300 font-bold">Product Image *</label>
@@ -569,13 +655,23 @@ export default function AdminPage() {
                         Switch to {prodImageInputType === 'url' ? 'File Upload' : 'URL Link'}
                       </span>
                     </div>
-                    {prodImageInputType === 'url' ? (
-                      <input type="text" value={prodImage} onChange={(e) => setProdImage(e.target.value)} required placeholder="https://image-url.jpg" className="w-full bg-black border border-zinc-700 text-white p-2.5 rounded-xl outline-none" />
-                    ) : (
-                      <input type="file" accept="image/*" onChange={(e) => handleFileUpload(e, setProdImage)} className="w-full bg-black border border-zinc-700 text-white p-2 rounded-xl text-[10px]" />
-                    )}
+                    <input 
+                      type="text" 
+                      value={prodImage} 
+                      onChange={(e) => setProdImage(e.target.value)} 
+                      required={prodImageInputType === 'url'} 
+                      placeholder="https://image-url.jpg" 
+                      className={`w-full bg-black border border-zinc-700 text-white p-2.5 rounded-xl outline-none ${prodImageInputType === 'file' ? 'hidden' : 'block'}`} 
+                    />
+                    <input 
+                      type="file" 
+                      accept="image/*" 
+                      onChange={(e) => handleFileUpload(e, setProdImage)} 
+                      className={`w-full bg-black border border-zinc-700 text-white p-2 rounded-xl text-[10px] ${prodImageInputType === 'url' ? 'hidden' : 'block'}`} 
+                    />
                   </div>
 
+                  {/* Product Video Input */}
                   <div>
                     <div className="flex justify-between items-center mb-1">
                       <label className="text-zinc-300 font-bold">Product Video (Optional)</label>
@@ -583,11 +679,19 @@ export default function AdminPage() {
                         Switch to {prodVideoInputType === 'url' ? 'File Upload' : 'URL Link'}
                       </span>
                     </div>
-                    {prodVideoInputType === 'url' ? (
-                      <input type="text" value={prodVideo} onChange={(e) => setProdVideo(e.target.value)} placeholder="https://video-url.mp4" className="w-full bg-black border border-zinc-700 text-white p-2.5 rounded-xl outline-none" />
-                    ) : (
-                      <input type="file" accept="video/*" onChange={(e) => handleFileUpload(e, setProdVideo)} className="w-full bg-black border border-zinc-700 text-white p-2 rounded-xl text-[10px]" />
-                    )}
+                    <input 
+                      type="text" 
+                      value={prodVideo} 
+                      onChange={(e) => setProdVideo(e.target.value)} 
+                      placeholder="https://video-url.mp4" 
+                      className={`w-full bg-black border border-zinc-700 text-white p-2.5 rounded-xl outline-none ${prodVideoInputType === 'file' ? 'hidden' : 'block'}`} 
+                    />
+                    <input 
+                      type="file" 
+                      accept="video/*" 
+                      onChange={(e) => handleFileUpload(e, setProdVideo)} 
+                      className={`w-full bg-black border border-zinc-700 text-white p-2 rounded-xl text-[10px] ${prodVideoInputType === 'url' ? 'hidden' : 'block'}`} 
+                    />
                   </div>
                 </div>
 
@@ -596,7 +700,20 @@ export default function AdminPage() {
                   <input type="text" value={prodDesc} onChange={(e) => setProdDesc(e.target.value)} placeholder="Describe product details..." className="w-full bg-black border border-zinc-700 text-white p-2.5 rounded-xl outline-none" />
                 </div>
 
-                <button type="submit" disabled={isAddingProduct} className="w-full bg-amber-500 hover:bg-amber-600 text-black font-extrabold py-3 rounded-xl transition cursor-pointer text-sm">
+                {/* Compact Live Progress Bar */}
+                {isAddingProduct && (
+                  <div className="space-y-1 bg-black/50 p-2.5 rounded-xl border border-amber-500/20">
+                    <div className="flex justify-between text-[11px] text-amber-400 font-bold">
+                      <span>Publishing Product Live...</span>
+                      <span>{uploadProgress}%</span>
+                    </div>
+                    <div className="w-full bg-zinc-900 h-1.5 rounded-full overflow-hidden">
+                      <div className="bg-amber-500 h-full transition-all duration-300" style={{ width: `${uploadProgress}%` }}></div>
+                    </div>
+                  </div>
+                )}
+
+                <button type="submit" disabled={isAddingProduct} className="w-full bg-amber-500 hover:bg-amber-600 text-black font-extrabold py-3 rounded-xl transition cursor-pointer text-sm shadow-lg shadow-amber-500/20">
                   {isAddingProduct ? "Publishing Product..." : "Publish Product Live"}
                 </button>
               </form>
@@ -610,7 +727,7 @@ export default function AdminPage() {
                       type="text" 
                       value={adminProductSearch} 
                       onChange={(e) => setAdminProductSearch(e.target.value)} 
-                      placeholder="Search product by name or category..." 
+                      placeholder="Search by ID, name, or category..." 
                       className="w-full bg-black border border-amber-500/40 text-white py-2 pl-3 pr-8 rounded-xl outline-none text-xs"
                     />
                     <Search size={14} className="absolute right-3 top-3 text-zinc-400" />
@@ -623,13 +740,16 @@ export default function AdminPage() {
                       <div className="flex items-center gap-3">
                         <img src={p.image} alt={p.name} className="w-14 h-14 object-cover rounded-xl border border-zinc-700" />
                         <div>
-                          <p className="font-bold text-white line-clamp-1">{p.name}</p>
+                          <span className="text-[10px] bg-amber-500/20 text-amber-400 font-mono font-bold px-1.5 py-0.5 rounded">
+                            {p.productId || "PRD-ID"}
+                          </span>
+                          <p className="font-bold text-white line-clamp-1 mt-0.5">{p.name}</p>
                           <p className="text-[11px] text-amber-400 font-bold">৳{p.price} | {p.category}</p>
                         </div>
                       </div>
                       <button 
                         onClick={() => handleMoveToTrash(p, 'product')} 
-                        className="bg-red-500/20 hover:bg-red-500 text-red-400 hover:text-white p-2.5 rounded-xl transition cursor-pointer"
+                        className="bg-red-500/25 hover:bg-red-500 text-red-400 hover:text-white p-2.5 rounded-xl transition cursor-pointer"
                         title="Move to Trash Bin"
                       >
                         <Trash2 size={16} />
@@ -641,33 +761,169 @@ export default function AdminPage() {
             </div>
           )}
 
+          {/* TAB: UPLOADS PRODUCT */}
+          {adminTab === 'uploads' && (
+            <div className="space-y-4 text-xs">
+              <div className="bg-amber-500/10 border border-amber-500/30 p-4 rounded-2xl flex items-center justify-between">
+                <div>
+                  <h3 className="font-extrabold text-amber-400 text-sm flex items-center gap-2">
+                    <UploadCloud size={18} /> Uploads Product & Live Catalog ({products.length} Products Available)
+                  </h3>
+                  <p className="text-zinc-400 text-[11px] mt-0.5">Manage and view all successfully uploaded products instantly right here.</p>
+                </div>
+                <button 
+                  onClick={() => setAdminTab('products')}
+                  className="bg-amber-500 hover:bg-amber-600 text-black px-4 py-2 rounded-xl font-extrabold flex items-center gap-1.5 transition cursor-pointer shadow"
+                >
+                  <Plus size={14} /> Add Another Product
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                {products.length === 0 ? (
+                  <p className="text-zinc-500 text-center py-12">No products uploaded yet.</p>
+                ) : (
+                  products.map((p, idx) => (
+                    <div key={p.id || idx} className="bg-zinc-950 border border-zinc-800 p-4 rounded-2xl flex items-center justify-between gap-4 shadow-xl">
+                      <div className="flex items-center gap-3">
+                        <img src={p.image} alt={p.name} className="w-12 h-12 object-cover rounded-xl border border-zinc-700" />
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] bg-amber-500/20 text-amber-400 font-mono font-bold px-1.5 py-0.5 rounded">
+                              {p.productId || "PRD-ID"}
+                            </span>
+                            <span className="text-[10px] bg-zinc-900 text-zinc-400 px-2 py-0.5 rounded font-bold">
+                              {p.category}
+                            </span>
+                          </div>
+                          <p className="font-bold text-white text-sm mt-1">{p.name}</p>
+                          <p className="text-[11px] text-zinc-400 flex items-center gap-1 mt-0.5">
+                            <Clock size={12} className="text-amber-400" /> Successfully uploaded live | Price: <span className="text-amber-400 font-bold">৳{p.price}</span>
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <span className="bg-emerald-500/20 text-emerald-400 text-[11px] font-bold px-3 py-1.5 rounded-xl border border-emerald-500/30">
+                          Status: Live
+                        </span>
+                        <button 
+                          onClick={() => handleMoveToTrash(p, 'product')} 
+                          className="bg-red-500/25 hover:bg-red-500 text-red-400 hover:text-white p-2.5 rounded-xl transition cursor-pointer"
+                          title="Move to Trash Bin"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+
           {/* TAB 2: ALL ORDERS */}
           {adminTab === 'orders' && (
             <div className="space-y-4 text-xs">
-              <p className="font-bold text-zinc-300 text-sm">All Customer Orders & Status Action Buttons:</p>
-              {allOrdersList.length === 0 ? (
-                <p className="text-zinc-500 text-center py-12">No orders placed yet.</p>
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-zinc-950 p-4 rounded-2xl border border-zinc-800 shadow-lg">
+                <div className="flex items-center gap-2 flex-grow">
+                  <div className="relative w-full sm:w-72">
+                    <input 
+                      type="text" 
+                      value={orderSearchQuery} 
+                      onChange={(e) => setOrderSearchQuery(e.target.value)} 
+                      placeholder="Search by name, phone, email, trxID..." 
+                      className="w-full bg-black border border-amber-500/40 text-white py-2 pl-3 pr-8 rounded-xl outline-none text-xs"
+                    />
+                    <Search size={14} className="absolute right-3 top-3 text-zinc-400" />
+                  </div>
+
+                  <div className="flex items-center gap-1 bg-black border border-zinc-700 px-3 py-2 rounded-xl text-zinc-300">
+                    <Filter size={14} className="text-amber-400" />
+                    <select 
+                      value={orderStatusFilter} 
+                      onChange={(e) => setOrderStatusFilter(e.target.value)} 
+                      className="bg-transparent text-white outline-none cursor-pointer text-xs"
+                    >
+                      <option value="All" className="bg-zinc-900">All Status</option>
+                      <option value="Processing" className="bg-zinc-900">Processing</option>
+                      <option value="Verified" className="bg-zinc-900">Verified</option>
+                      <option value="Delivered" className="bg-zinc-900">Delivered</option>
+                      <option value="Cancelled" className="bg-zinc-900">Cancelled</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={handleExportOrdersCSV}
+                    className="bg-emerald-600 hover:bg-emerald-500 text-white px-3.5 py-2 rounded-xl font-bold flex items-center gap-1.5 cursor-pointer transition shadow"
+                  >
+                    <Download size={14} /> Export CSV
+                  </button>
+                </div>
+              </div>
+
+              <p className="font-bold text-zinc-300 text-sm">Showing Orders ({filteredOrders.length} of {allOrdersList.length}):</p>
+              
+              {filteredOrders.length === 0 ? (
+                <p className="text-zinc-500 text-center py-12">No matching orders found.</p>
               ) : (
-                allOrdersList.map((ord) => {
+                filteredOrders.map((ord) => {
                   const currentStatus = ord.status || 'Pending';
+                  
+                  const phone = ord.phone || ord.whatsapp || ord.customerPhone || "";
+                  const email = ord.customerEmail || ord.email || "N/A";
+                  const password = ord.password || ord.customerPassword || "N/A";
+                  const customerName = ord.customerName || "Valued Customer";
+                  const totalAmount = ord.totalPrice || ord.totalPaid || 350;
+                  const productTitle = ord.items?.[0]?.name || ord.items?.[0]?.title || "One Shop Item";
+                  const orderDate = new Date().toLocaleDateString();
+                  const renewalDate = "30 Days Later";
+
+                  const waMessage = encodeURIComponent(
+                    `Assalamu Alaikum.\n` +
+                    `Your One Shop order has been updated.\n\n` +
+                    `📦 Product: ${productTitle}\n` +
+                    `👤 Gmail: ${email}\n` +
+                    `🔑 Password: ${password}\n` +
+                    `📅 Order Date: ${orderDate}\n` +
+                    `🔄 Renewal Date: ${renewalDate}\n` +
+                    `💰 Amount: ৳${totalAmount}\n` +
+                    `📊 Status: ${currentStatus}\n\n` +
+                    `Thank you for shopping with One Shop.`
+                  );
+
                   return (
                     <div key={ord.id} className="bg-zinc-950 border border-amber-500/30 rounded-2xl p-4 space-y-3 shadow-xl">
                       <div className="flex flex-wrap justify-between items-center border-b border-zinc-800 pb-2 gap-2">
                         <div>
-                          <span className="font-extrabold text-white text-sm">Customer: {ord.customerName} ({ord.phone})</span>
+                          <span className="font-extrabold text-white text-sm">Customer: {customerName} ({phone})</span>
                           <p className="text-[10px] text-zinc-400">Payment: {ord.paymentMethod} | TrxID: <span className="text-amber-400 font-mono font-bold">{ord.trxId}</span></p>
                         </div>
                         
                         <div className="flex items-center gap-2">
                           <button 
                             onClick={() => setSelectedInvoice(ord)}
-                            className="bg-amber-500/20 hover:bg-amber-500 text-amber-400 hover:text-black border border-amber-500/40 px-3 py-1.5 rounded-xl font-bold flex items-center gap-1 cursor-pointer transition"
+                            className="bg-amber-500/25 hover:bg-amber-500 text-amber-400 hover:text-black border border-amber-500/40 px-3 py-1.5 rounded-xl font-bold flex items-center gap-1 cursor-pointer transition"
                           >
                             <Eye size={14} /> View Memo
                           </button>
+                          
+                          {phone && (
+                            <a
+                              href={`https://wa.me/${phone.replace(/[^0-9]/g, "")}?text=${waMessage}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-xl font-bold flex items-center gap-1 cursor-pointer transition shadow"
+                            >
+                              💬 WhatsApp Update
+                            </a>
+                          )}
+
                           <button 
                             onClick={() => handleMoveToTrash(ord, 'order')}
-                            className="bg-red-500/20 hover:bg-red-500 text-red-400 hover:text-white p-2 rounded-xl transition"
+                            className="bg-red-500/25 hover:bg-red-500 text-red-400 hover:text-white p-2 rounded-xl transition"
                             title="Move Order to Bin"
                           >
                             <Trash2 size={14} />
@@ -691,31 +947,32 @@ export default function AdminPage() {
                         </button>
                         <button 
                           onClick={() => handleUpdateOrderStatus(ord.id, 'Delivered')}
-                          className={`px-3 py-1 rounded-lg font-bold transition cursor-pointer ${currentStatus === 'Delivered' ? 'bg-emerald-500 text-black' : 'bg-zinc-900 text-zinc-300 hover:bg-zinc-800'}`}
+                          className={`px-3 py-1 rounded-lg font-bold transition cursor-pointer ${currentStatus === 'Delivered' ? 'bg-emerald-500 text-black' : 'bg-zinc-900 text-emerald-400 hover:bg-zinc-800'}`}
                         >
                           Delivered
                         </button>
                         <button 
                           onClick={() => handleUpdateOrderStatus(ord.id, 'Cancelled')}
-                          className={`px-3 py-1 rounded-lg font-bold transition cursor-pointer ${currentStatus === 'Cancelled' ? 'bg-red-500 text-white' : 'bg-zinc-900 text-zinc-300 hover:bg-zinc-800'}`}
+                          className={`px-3 py-1 rounded-lg font-bold transition cursor-pointer ${currentStatus === 'Cancelled' ? 'bg-red-500 text-white' : 'bg-zinc-900 text-red-400 hover:bg-zinc-800'}`}
                         >
                           Cancel Order
                         </button>
                       </div>
 
                       <div className="space-y-1 bg-black p-3 rounded-xl border border-zinc-900">
-                        <p className="font-bold text-zinc-400 text-[11px]">Items Purchased:</p>
+                        <p className="font-bold text-zinc-400 text-[11px]">Items Purchased & Account Info:</p>
                         {ord.items?.map((it: any, i: number) => (
                           <div key={i} className="flex justify-between text-zinc-300">
                             <span>• {it.name} (x{it.quantity})</span>
                             <span className="font-bold text-amber-400">৳{it.price * it.quantity}</span>
                           </div>
                         ))}
+                        <p className="text-[11px] text-zinc-400 pt-1">👤 Gmail: <span className="text-amber-400">{email}</span> | 🔑 Pass: <span className="text-amber-400">{password}</span></p>
                       </div>
 
                       <div className="flex justify-between items-center text-xs">
                         <span className="text-zinc-400">Address: <span className="text-white">{ord.address}</span></span>
-                        <span className="font-black text-amber-400 text-base">Total Paid: ৳{ord.totalPrice}</span>
+                        <span className="font-black text-amber-400 text-base">Total Paid: ৳{totalAmount}</span>
                       </div>
                     </div>
                   );
@@ -775,7 +1032,7 @@ export default function AdminPage() {
                   <div key={ord.id} className="bg-zinc-950 border border-emerald-500/30 rounded-2xl p-4 space-y-3 shadow-xl">
                     <div className="flex justify-between items-center border-b border-zinc-800 pb-2">
                       <span className="font-extrabold text-white text-sm">Customer: {ord.customerName} ({ord.phone})</span>
-                      <span className="bg-emerald-500/20 text-emerald-400 px-3 py-1 rounded font-bold">Completed</span>
+                      <span className="bg-emerald-500/25 text-emerald-400 px-3 py-1 rounded font-bold">Completed</span>
                     </div>
                     <p className="text-zinc-400">Total: ৳{ord.totalPrice}</p>
                   </div>
@@ -795,7 +1052,7 @@ export default function AdminPage() {
                   <div key={ord.id} className="bg-zinc-950 border border-red-500/30 rounded-2xl p-4 space-y-3 shadow-xl">
                     <div className="flex justify-between items-center border-b border-zinc-800 pb-2">
                       <span className="font-extrabold text-white text-sm">Customer: {ord.customerName} ({ord.phone})</span>
-                      <button onClick={() => handleMoveToTrash(ord, 'order')} className="bg-red-500/20 text-red-400 px-3 py-1 rounded font-bold">Move to Bin</button>
+                      <button onClick={() => handleMoveToTrash(ord, 'order')} className="bg-red-500/25 text-red-400 px-3 py-1 rounded font-bold">Move to Bin</button>
                     </div>
                     <p className="text-zinc-400">Total: ৳{ord.totalPrice}</p>
                   </div>
@@ -840,11 +1097,20 @@ export default function AdminPage() {
                         Switch to {bannerInputType === 'url' ? 'File Upload' : 'URL Link'}
                       </span>
                     </div>
-                    {bannerInputType === 'url' ? (
-                      <input type="text" value={newMediaUrl} onChange={(e) => setNewMediaUrl(e.target.value)} required placeholder="https://..." className="w-full bg-black border border-zinc-700 text-white p-2.5 rounded-xl outline-none" />
-                    ) : (
-                      <input type="file" accept="image/*,video/*" onChange={(e) => handleFileUpload(e, setNewMediaUrl)} className="w-full bg-black border border-zinc-700 text-white p-2 rounded-xl text-[10px]" />
-                    )}
+                    <input 
+                      type="text" 
+                      value={newMediaUrl} 
+                      onChange={(e) => setNewMediaUrl(e.target.value)} 
+                      required={bannerInputType === 'url'} 
+                      placeholder="https://..." 
+                      className={`w-full bg-black border border-zinc-700 text-white p-2.5 rounded-xl outline-none ${bannerInputType === 'file' ? 'hidden' : 'block'}`} 
+                    />
+                    <input 
+                      type="file" 
+                      accept="image/*,video/*" 
+                      onChange={(e) => handleFileUpload(e, setNewMediaUrl)} 
+                      className={`w-full bg-black border border-zinc-700 text-white p-2 rounded-xl text-[10px] ${bannerInputType === 'url' ? 'hidden' : 'block'}`} 
+                    />
                   </div>
                 </div>
 
@@ -872,7 +1138,7 @@ export default function AdminPage() {
                     </div>
                     <button 
                       onClick={() => handleDeleteBanner(banner.id)}
-                      className="bg-red-500/20 hover:bg-red-500 text-red-400 hover:text-white p-2.5 rounded-xl transition cursor-pointer"
+                      className="bg-red-500/25 hover:bg-red-500 text-red-400 hover:text-white p-2.5 rounded-xl transition cursor-pointer"
                     >
                       <Trash2 size={18} />
                     </button>
@@ -901,7 +1167,7 @@ export default function AdminPage() {
                   trashItems.map((item) => (
                     <div key={item.id} className="bg-black border border-zinc-800 p-4 rounded-2xl flex items-center justify-between gap-3 shadow-lg">
                       <div>
-                        <span className="text-[10px] bg-red-500/20 text-red-400 font-bold px-2 py-0.5 rounded uppercase">{item.itemType}</span>
+                        <span className="text-[10px] bg-red-500/25 text-red-400 font-bold px-2 py-0.5 rounded uppercase">{item.itemType}</span>
                         <p className="font-bold text-white text-sm mt-1">{item.data?.name || item.data?.customerName || "Deleted Item"}</p>
                         <p className="text-[10px] text-zinc-400">Price / Total: ৳{item.data?.price || item.data?.totalPrice}</p>
                       </div>
@@ -915,7 +1181,7 @@ export default function AdminPage() {
                         </button>
                         <button 
                           onClick={() => handlePermanentDelete(item.id)}
-                          className="bg-red-500/20 hover:bg-red-500 text-red-400 hover:text-white border border-red-500/40 px-3 py-2 rounded-xl font-bold transition cursor-pointer"
+                          className="bg-red-500/25 hover:bg-red-500 text-red-400 hover:text-white border border-red-500/40 px-3 py-2 rounded-xl font-bold transition cursor-pointer"
                         >
                           Delete Forever
                         </button>
@@ -945,36 +1211,46 @@ export default function AdminPage() {
                 ) : (
                   adminUsers.map((u) => {
                     const isApproved = u.status === 'Approved';
+                    const isNotApproved = u.status === 'Not Approved' || u.status === 'Revoked';
                     return (
-                      <div key={u.id} className="bg-black border border-zinc-800 p-4 rounded-2xl flex items-center justify-between gap-3 shadow-lg">
-                        <div className="flex items-center gap-3">
-                          <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-xs ${isApproved ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' : 'bg-amber-500/20 text-amber-400 border border-amber-500/40'}`}>
+                      <div key={u.id} className="bg-black border border-zinc-800 p-4 rounded-2xl flex flex-wrap items-center justify-between gap-4 shadow-lg">
+                        <div className="flex items-center gap-3 min-w-[240px]">
+                          <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${isApproved ? 'bg-emerald-500/25 text-emerald-400 border border-emerald-500/40' : 'bg-amber-500/25 text-amber-400 border border-amber-500/40'}`}>
                             {u.email?.slice(0, 2).toUpperCase()}
                           </div>
                           <div>
-                            <p className="font-bold text-white text-sm">{u.email}</p>
-                            <p className="text-[10px] text-zinc-400">
+                            <p className="font-bold text-white text-sm break-all">{u.email}</p>
+                            <p className="text-[10px] text-zinc-400 mt-0.5">
                               Role: <span className="text-amber-400 font-semibold">{u.role || 'Admin User'}</span> | Status: 
-                              <span className={`font-bold ml-1 ${isApproved ? 'text-emerald-400' : 'text-amber-400'}`}>{u.status || 'Pending'}</span>
+                              <span className={`font-bold ml-1 ${isApproved ? 'text-emerald-400' : isNotApproved ? 'text-red-400' : 'text-amber-400'}`}>{u.status || 'Pending'}</span>
                             </p>
                           </div>
                         </div>
 
                         {u.email?.toLowerCase() !== SUPER_ADMIN_EMAIL.toLowerCase() && (
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 ml-auto">
                             {!isApproved ? (
                               <button 
                                 onClick={() => handleApproveAdminUser(u.id, 'Approved')}
-                                className="bg-emerald-500 hover:bg-emerald-600 text-black px-3.5 py-2 rounded-xl font-extrabold text-xs flex items-center gap-1 shadow-lg transition cursor-pointer"
+                                className="bg-emerald-500 hover:bg-emerald-600 text-black px-3.5 py-2 rounded-xl font-extrabold text-xs flex items-center gap-1.5 shadow-lg transition cursor-pointer shrink-0"
                               >
-                                <UserCheck size={14} /> Approve Access
+                                <UserCheck size={14} /> Approve
                               </button>
                             ) : (
                               <button 
                                 onClick={() => handleApproveAdminUser(u.id, 'Revoked')}
-                                className="bg-red-500/20 hover:bg-red-500 text-red-400 hover:text-white border border-red-500/40 px-3.5 py-2 rounded-xl font-bold text-xs flex items-center gap-1 transition cursor-pointer"
+                                className="bg-red-500/25 hover:bg-red-500 text-red-400 hover:text-white border border-red-500/40 px-3.5 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 transition cursor-pointer shrink-0"
                               >
-                                <UserX size={14} /> Revoke Access
+                                <UserX size={14} /> Revoke
+                              </button>
+                            )}
+
+                            {!isNotApproved && (
+                              <button 
+                                onClick={() => handleApproveAdminUser(u.id, 'Not Approved')}
+                                className="bg-zinc-900 hover:bg-zinc-800 text-red-400 border border-red-500/30 px-3.5 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 transition cursor-pointer shrink-0"
+                              >
+                                <UserX size={14} /> Not Approved
                               </button>
                             )}
                           </div>
@@ -999,7 +1275,7 @@ export default function AdminPage() {
             </button>
             <div className="text-center border-b border-zinc-200 pb-3">
               <h2 className="font-black text-xl tracking-wider text-black">ONE SHOP CASH MEMO</h2>
-              <p className="text-xs text-zinc-500">Customer Order Receipt</p>
+              <p className="text-xs text-zinc-500">Customer Order Receipt/Memo</p>
             </div>
             <div className="space-y-2 text-xs">
               <p><strong>Customer:</strong> {selectedInvoice.customerName}</p>
