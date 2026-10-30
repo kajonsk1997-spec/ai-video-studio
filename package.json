@@ -1,29 +1,26 @@
 {
-  "name": "one-shop",
+  "name": "ai-video-bot",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "set NODE_OPTIONS=--max-old-space-size=4096 && next dev",
-    "build": "set NODE_OPTIONS=--max-old-space-size=4096 && next build",
+    "dev": "next dev",
+    "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "eslint"
   },
   "dependencies": {
-    "@google/genai": "^2.31.0",
-    "@tailwindcss/postcss": "^4.3.3",
-    "@tailwindcss/turbopack": "^4.3.3",
-    "firebase": "^11.0.0",
-    "lucide-react": "^1.63.0",
-    "next": "^16.4.3",
-    "react": "^19.3.1",
-    "react-dom": "^19.3.1"
+    "next": "16.4.3",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
   },
   "devDependencies": {
-    "@types/node": "^20.0.0",
-    "@types/react": "^19.0.0",
-    "@types/react-dom": "^19.0.0",
-    "postcss": "^8.5.31",
-    "tailwindcss": "^4.3.3",
-    "typescript": "^5.0.0"
+    "@tailwindcss/turbopack": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.4.3",
+    "tailwindcss": "^4",
+    "typescript": "^5"
   }
 }
