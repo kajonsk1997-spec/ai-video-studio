@@ -31,6 +31,13 @@ export default function Home() {
     setMounted(true);
   }, []);
 
+  // Robust Image URL Generator with Fallback Cache-Buster
+  const getSafeImageUrl = (promptText: string, seed: number | string) => {
+    const encoded = encodeURIComponent(promptText || "Cinematic 8k moody motivational view");
+    // Using Pollinations with random fallback seed rotation
+    return `https://image.pollinations.ai/prompt/${encoded}?width=1280&height=720&nologo=true&seed=${seed}`;
+  };
+
   const playRealAudio = (url: string) => {
     if (audioRef.current) {
       audioRef.current.pause();
@@ -112,8 +119,17 @@ export default function Home() {
         throw new Error("Using fallback bundle!");
       }
 
-      setProductionKit(data.data);
-      setThumbnailText(data.data.title || topic);
+      // Ensure all scene images use safe reliable builder
+      const processedData = {
+        ...data.data,
+        scenes: data.data.scenes.map((sc: any, idx: number) => ({
+          ...sc,
+          imageUrl: getSafeImageUrl(sc.imagePrompt || topic, idx + 100)
+        }))
+      };
+
+      setProductionKit(processedData);
+      setThumbnailText(processedData.title || topic);
       
       setViralMeta({
         titles: [
@@ -125,9 +141,7 @@ export default function Home() {
         tags: [topic, "Motivation", "Mindset", "Discipline", "Success Secrets"]
       });
 
-      const thumbPrompt = encodeURIComponent(`Epic cinematic YouTube thumbnail, ultra high CTR, dramatic cinematic lighting, 8k, photorealistic, subject: ${topic}, bold contrast`);
-      setThumbnailUrl(`https://image.pollinations.ai/prompt/${thumbPrompt}?width=1280&height=720&seed=${Date.now()}`);
-
+      setThumbnailUrl(getSafeImageUrl(`Epic cinematic YouTube thumbnail, ultra high CTR, dramatic lighting, ${topic}`, 999));
       setStep("review");
     } catch (err: any) {
       const fallbackData = {
@@ -139,7 +153,7 @@ export default function Home() {
             durationInSeconds: 10,
             voiceover: `The ultimate truth about ${topic} is that consistency beats pure talent every single time.`,
             imagePrompt: `Cinematic moody landscape representing ${topic}, 8k`,
-            imageUrl: `https://image.pollinations.ai/prompt/Cinematic%20moody%20landscape%20representing%20${encodeURIComponent(topic)}?width=1280&height=720&seed=1`,
+            imageUrl: getSafeImageUrl(`Cinematic moody landscape representing ${topic}, 8k`, 1),
             audioUrl: "https://actions.google.com/sounds/v1/ambiences/wind_howl.ogg"
           },
           {
@@ -147,7 +161,7 @@ export default function Home() {
             durationInSeconds: 12,
             voiceover: "When others sleep, you must grind. When others quit, you push forward.",
             imagePrompt: "Determined person working hard under dark cinematic studio light, 8k",
-            imageUrl: "https://image.pollinations.ai/prompt/Determined%20person%20working%20hard%20under%20dark%20cinematic%20studio%20light?width=1280&height=720&seed=2",
+            imageUrl: getSafeImageUrl("Determined person working hard under dark cinematic studio light", 2),
             audioUrl: "https://actions.google.com/sounds/v1/ambiences/rain_heavy.ogg"
           },
           {
@@ -155,7 +169,7 @@ export default function Home() {
             durationInSeconds: 10,
             voiceover: "Your future self will thank you for the sacrifices you make today. Stay unstoppable.",
             imagePrompt: "Victorious person standing on mountain peak looking at golden sunrise, 8k",
-            imageUrl: "https://image.pollinations.ai/prompt/Victorious%20person%20standing%20on%20mountain%20peak%20looking%20at%20golden%20sunrise?width=1280&height=720&seed=3",
+            imageUrl: getSafeImageUrl("Victorious person standing on mountain peak looking at golden sunrise", 3),
             audioUrl: "https://actions.google.com/sounds/v1/ambiences/ocean_surf.ogg"
           }
         ]
@@ -173,7 +187,7 @@ export default function Home() {
         tags: [topic, "Motivation", "Mindset", "Discipline", "Success Secrets"]
       });
 
-      setThumbnailUrl(`https://image.pollinations.ai/prompt/Epic%20YouTube%20Thumbnail%20for%20${encodeURIComponent(topic)}?width=1280&height=720&seed=${Date.now()}`);
+      setThumbnailUrl(getSafeImageUrl(`Epic YouTube Thumbnail for ${topic}`, 777));
       setStep("review");
     } finally {
       setLoading(false);
@@ -184,10 +198,9 @@ export default function Home() {
     if (!topic.trim()) return;
     setIsGeneratingThumb(true);
     setTimeout(() => {
-      const customPrompt = encodeURIComponent(`Hyper-realistic viral YouTube thumbnail, high click-through rate, dramatic dark and gold mood, professional studio lighting, focus on: ${thumbnailText || topic}`);
-      setThumbnailUrl(`https://image.pollinations.ai/prompt/${customPrompt}?width=1280&height=720&seed=${Math.random()}`);
+      setThumbnailUrl(getSafeImageUrl(`Hyper-realistic viral YouTube thumbnail, high CTR, dark and gold mood, ${thumbnailText || topic}`, Math.random()));
       setIsGeneratingThumb(false);
-    }, 800);
+    }, 600);
   };
 
   const startVideoPlayback = () => {
@@ -206,9 +219,9 @@ export default function Home() {
     if (!productionKit?.scenes?.[index]) return;
     const updatedScenes = [...productionKit.scenes];
     const targetScene = updatedScenes[index];
-    const encodedPrompt = encodeURIComponent(targetScene.imagePrompt || "Cinematic 8k moody motivational view");
     
-    targetScene.imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=1280&height=720&seed=${Math.random()}`;
+    // Force new unique seed to bypass cache or limits
+    targetScene.imageUrl = getSafeImageUrl(targetScene.imagePrompt || topic, Math.random());
     setProductionKit({ ...productionKit, scenes: updatedScenes });
   };
 
@@ -228,7 +241,7 @@ export default function Home() {
       downloadAnchor.click();
       downloadAnchor.remove();
       alert("Master Video Package exported successfully!");
-    }, 2000);
+    }, 1500);
   };
 
   return (
